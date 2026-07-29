@@ -118,13 +118,13 @@ traceback: |
   NameError: name 'bpu' is not defined
 ```
 
-### Build, save, export, and render atomically
+### Build, save, export, and render in one request
 
 ```sh
 blender-axi build model.py --save /tmp/ship.blend --render front,side --glb /tmp/ship.glb
 ```
 
-One socket round-trip, ordered save → glTF export → render, returning artifacts and the resulting scene aggregate:
+One socket round-trip runs save → glTF export → render sequentially, returning artifacts and the resulting scene aggregate. These actions are not rolled back, so files written by an earlier action can remain if a later action fails:
 
 ```
 ok: true
@@ -218,7 +218,7 @@ The skill's commands are written as `npx -y blender-axi ...`, which requires the
 | Output ends in `... (truncated, N chars total)` | Intentional context guard. Re-run with `--full`. |
 | `blender-axi: command not found` | `npm link` wasn't run, or use `node dist/bin/blender-axi.js` directly. |
 | A script called `bpy.ops.wm.read_homefile()` and later steps behaved oddly | Handled: `blender-axi` re-resolves and normalizes Blender's context after a scene reset so save, export, and render act on the replacement scene. |
-| `stop` reports `not-owned` | That Blender wasn't launched by this session. Stop it yourself — `blender-axi` won't kill a process it doesn't own. |
+| `stop` reports `not-owned` | This session has no readable PID file, so no signal is sent. Otherwise `stop` signals the recorded PID without verifying process identity. |
 
 ## Development
 
