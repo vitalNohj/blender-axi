@@ -13,7 +13,7 @@ describe("prelude", () => {
 		expect(code).toContain("traceback.format_exc()");
 		expect(code).toContain("stdout_before_failure");
 		expect(code).toContain(
-			"compile(\"print('before')\\nraise ValueError('bad')\", \"/tmp/test.py\", 'exec')",
+			"_blender_axi_compile(\"print('before')\\nraise ValueError('bad')\", \"/tmp/test.py\")",
 		);
 	});
 
@@ -23,6 +23,33 @@ describe("prelude", () => {
 		expect(code).toContain("_exportable.select_set(True)");
 		expect(code).toContain("if _sc.world is None");
 		expect(code).toContain("properties['engine'].enum_items");
+	});
+
+	it("restores context during and after an in-memory file reset", () => {
+		const code = generatePrelude("bpy.ops.wm.read_homefile(use_empty=True)", {
+			save: "/tmp/a.blend",
+			glb: "/tmp/a.glb",
+		});
+		expect(code).toContain("class _BlenderAxiResetTransformer(ast.NodeTransformer)");
+		expect(code).toContain("node.func = ast.copy_location(ast.Name(id='_blender_axi_read_homefile_and_normalize'");
+		expect(code).toContain("exec(_blender_axi_compile(");
+		expect(code).toContain("C.temp_override(window=_window)");
+		expect(code).toContain("_blender_axi_normalize_scene()\n        with redirect_stdout");
+		expect(code.indexOf("_blender_axi_normalize_scene()\n        with redirect_stdout")).toBeLessThan(
+			code.indexOf("save_as_mainfile"),
+		);
+	});
+
+	it("creates a fallback camera when a reset scene has meshes but no camera", () => {
+		const code = generatePrelude("", {
+			renderAngles: ["front"],
+			renderOutDir: "/tmp",
+		});
+		expect(code).toContain('if _cam is None:');
+		expect(code).toContain('D.cameras.new("Camera")');
+		expect(code).toContain('_sc.camera = _cam');
+		expect(code).toContain("if not any(o.type == 'LIGHT'");
+		expect(code).toContain('if not _mesh_objects:');
 	});
 
 	it("orders save before glb export and rendering", () => {
@@ -44,9 +71,20 @@ describe("prelude", () => {
 	it("parses success and failure envelopes", () => {
 		expect(
 			parseExecutionOutput(
-				`${RESULT_MARKER}{"ok":true,"stdout":"hi","artifacts":[]}\n`,
+				`${RESULT_MARKER}{"ok":true,"stdout":"hi","artifacts":[],"scene":{"objects":3,"meshes":1,"triangles":12,"materials":2,"collections":1}}\n`,
 			),
-		).toEqual({ ok: true, stdout: "hi", artifacts: [] });
+		).toEqual({
+			ok: true,
+			stdout: "hi",
+			artifacts: [],
+			scene: {
+				objects: 3,
+				meshes: 1,
+				triangles: 12,
+				materials: 2,
+				collections: 1,
+			},
+		});
 		expect(
 			parseExecutionOutput(
 				`${RESULT_MARKER}{"ok":false,"error":"bad","traceback":"Traceback","stdout_before_failure":"before"}\n`,

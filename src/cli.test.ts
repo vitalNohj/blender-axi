@@ -108,16 +108,38 @@ materials:
 		});
 	});
 
-	it("keeps scene defaults minimal and expands only requested fields or rows", () => {
+	it("defaults scene output to aggregates and opts into object rows", () => {
 		const compact = sceneSource([], false);
-		expect(compact).toContain('"name": o.name, "type": o.type');
-		expect(compact).toContain("list(C.scene.objects)[:20]");
-		expect(compact).not.toContain("vertices");
+		expect(compact).toContain("_blender_axi_scene_summary()");
+		expect(compact).not.toContain('"items"');
 
-		const expanded = sceneSource(["visible", "vertices"], true);
+		const expanded = sceneSource(["visible", "vertices"], false);
 		expect(expanded).toContain('"visible": o.visible_get()');
 		expect(expanded).toContain('"vertices": len(o.data.vertices)');
-		expect(expanded).not.toContain("[:20]");
+		expect(expanded).toContain('for o in C.scene.objects');
+
+		const full = sceneSource([], true);
+		expect(full).toContain('"name": o.name, "type": o.type');
+	});
+
+	it("includes aggregate scene state in successful build output", () => {
+		const rendered = executionOutput(
+			{
+				ok: true,
+				stdout: "built\n",
+				artifacts: ["/tmp/a.blend"],
+				scene: {
+					objects: 3,
+					meshes: 1,
+					triangles: 12,
+					materials: 2,
+					collections: 1,
+				},
+			},
+			false,
+			false,
+		);
+		expect(rendered).toContain("scene:\n  objects: 3\n  meshes: 1\n  triangles: 12");
 	});
 
 	it("generates a static skill with only npx command examples", () => {

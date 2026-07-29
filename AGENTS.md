@@ -2,7 +2,7 @@
 
 This file is the project's committed home for project-intrinsic agent knowledge: build, test, release, architecture, and sharp-edge notes that should travel with the code.
 
-- The wire protocol and Blender behavior are implemented in `src/protocol.ts` and `src/prelude.ts`; keep compatibility with the unmodified BlenderMCP v1.2 addon.
+- The wire protocol and Blender behavior are implemented in `src/protocol.ts` and `src/prelude.ts`; keep compatibility with the unmodified BlenderMCP v1.2 addon. User scripts may replace the active file with `bpy.ops.wm.read_homefile`, so post-build actions must re-resolve and normalize Blender context.
 - Run `npm test` and `npm run build`. Live acceptance requires a GUI Blender addon listener and must write artifacts outside reference workspaces, typically under `/tmp`.
 
 ## Maintaining this file

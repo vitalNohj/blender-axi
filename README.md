@@ -38,7 +38,7 @@ blender-axi setup hooks
 
 `exec` wraps Python before sending it, so failures against the unmodified addon include the full traceback and stdout printed before failure. Long execution output is truncated with its total size and a `--full` escape hatch. `build` performs build, save, glTF export, and camera rendering in one socket round-trip, with save before export and render.
 
-`scene` returns total counts and compact `name,type` object rows. It lists 20 items per group by default and prints a contextual `--full` hint when more exist. `--fields visible,selected,vertices` adds only the requested object columns.
+`scene` returns aggregate object, mesh, triangle, material, and collection counts by default. `--fields name,type,visible,selected,vertices` opts into object rows with only the requested columns; `--full` returns every object with `name,type`.
 
 All commands fail clearly when the selected port is dead. Add `--launch` to `ping`, `exec`, `build`, `render`, or `scene` to opt into launching Blender. `start` explicitly launches Blender. `stop` only stops a process launched and recorded by the same session, never an unrelated GUI instance.
 

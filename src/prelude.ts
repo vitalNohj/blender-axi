@@ -7,23 +7,61 @@ export interface PreludeOptions {
 	renderAngles?: string[];
 	renderOutDir?: string;
 	resolution?: { width: number; height: number };
+	summarize?: boolean;
 }
 
 function normalizedPrelude(): string {
-	return `import bpy, json, traceback, io, os, math
+	return `import bpy, json, traceback, io, os, math, sys, ast
 from contextlib import redirect_stdout
-D = bpy.data
-C = bpy.context
-_sc = C.scene
-if _sc.world is None:
-    _sc.world = D.worlds.new("World")
-if len(_sc.objects) and C.view_layer.objects.active is None:
-    _active = next((o for o in _sc.objects if not o.hide_viewport), _sc.objects[0])
-    bpy.ops.object.select_all(action='DESELECT')
-    _active.select_set(True)
-    C.view_layer.objects.active = _active
-_engine_items = _sc.render.bl_rna.properties['engine'].enum_items
-BLENDER_AXI_RENDER_ENGINES = tuple(item.identifier for item in _engine_items)
+_blender_axi_context_overrides = []
+def _blender_axi_normalize_scene():
+    global D, C, _sc, BLENDER_AXI_RENDER_ENGINES
+    D = bpy.data
+    C = bpy.context
+    if C.window is None:
+        _window = next(iter(C.window_manager.windows), None)
+        if _window is not None:
+            _override = C.temp_override(window=_window)
+            _override.__enter__()
+            _blender_axi_context_overrides.append(_override)
+            C = bpy.context
+    _sc = C.scene
+    if _sc.world is None:
+        _sc.world = D.worlds.new("World")
+    if len(_sc.objects) and C.view_layer.objects.active is None:
+        _active = next((o for o in _sc.objects if not o.hide_viewport), _sc.objects[0])
+        bpy.ops.object.select_all(action='DESELECT')
+        _active.select_set(True)
+        C.view_layer.objects.active = _active
+    _engine_items = _sc.render.bl_rna.properties['engine'].enum_items
+    BLENDER_AXI_RENDER_ENGINES = tuple(item.identifier for item in _engine_items)
+def _blender_axi_read_homefile_and_normalize(*args, **kwargs):
+    _result = bpy.ops.wm.read_homefile(*args, **kwargs)
+    _blender_axi_normalize_scene()
+    return _result
+class _BlenderAxiResetTransformer(ast.NodeTransformer):
+    def visit_Call(self, node):
+        self.generic_visit(node)
+        if isinstance(node.func, ast.Attribute) and node.func.attr == 'read_homefile' and isinstance(node.func.value, ast.Attribute) and node.func.value.attr == 'wm' and isinstance(node.func.value.value, ast.Attribute) and node.func.value.value.attr == 'ops' and isinstance(node.func.value.value.value, ast.Name) and node.func.value.value.value.id == 'bpy':
+            node.func = ast.copy_location(ast.Name(id='_blender_axi_read_homefile_and_normalize', ctx=ast.Load()), node.func)
+        return node
+def _blender_axi_compile(source, filename):
+    _tree = _BlenderAxiResetTransformer().visit(ast.parse(source, filename=filename, mode='exec'))
+    ast.fix_missing_locations(_tree)
+    return compile(_tree, filename, 'exec')
+def _blender_axi_scene_summary():
+    _depsgraph = C.evaluated_depsgraph_get()
+    _meshes = [o for o in _sc.objects if o.type == 'MESH']
+    _triangles = 0
+    for _object in _meshes:
+        _evaluated = _object.evaluated_get(_depsgraph)
+        _mesh = _evaluated.to_mesh()
+        try:
+            _triangles += sum(len(p.vertices) - 2 for p in _mesh.polygons)
+        finally:
+            _evaluated.to_mesh_clear()
+    return {"objects": len(_sc.objects), "meshes": len(_meshes), "triangles": _triangles, "materials": len(D.materials), "collections": len(D.collections)}
+_blender_axi_normalize_scene()
 `;
 }
 
@@ -53,10 +91,24 @@ function renderCode(
 	const pairs = angles.map((name) => [name, angleMap[name]]);
 	return `
 _cam = C.scene.camera
+_mesh_objects = [o for o in C.scene.objects if o.type == 'MESH']
+if not _mesh_objects:
+    raise RuntimeError("Cannot render: scene has no mesh objects")
+_target_z = 0.5 * (min(o.matrix_world.translation.z for o in _mesh_objects) + max(o.matrix_world.translation.z for o in _mesh_objects))
 if _cam is None:
-    raise RuntimeError("Cannot render: scene has no active camera")
+    _camera_data = D.cameras.new("Camera")
+    _cam = D.objects.new("Camera", _camera_data)
+    _sc.collection.objects.link(_cam)
+    _radius = max(2.5, max(max(o.dimensions) for o in _mesh_objects) * 2.5)
+    _cam.location = (0.0, -_radius, _target_z)
+    _sc.camera = _cam
+if not any(o.type == 'LIGHT' for o in C.scene.objects):
+    _light_data = D.lights.new("Sun", 'SUN')
+    _light_data.energy = 3.0
+    _light = D.objects.new("Sun", _light_data)
+    _light.rotation_euler = (math.radians(35), math.radians(-25), math.radians(-25))
+    _sc.collection.objects.link(_light)
 ${resolution ? `_sc.render.resolution_x = ${resolution.width}\n_sc.render.resolution_y = ${resolution.height}` : ""}
-_target_z = 0.5 * (min((o.matrix_world.translation.z for o in C.scene.objects if o.type == 'MESH'), default=0.0) + max((o.matrix_world.translation.z for o in C.scene.objects if o.type == 'MESH'), default=2.0))
 _target = mathutils.Vector((0.0, 0.0, _target_z)) if 'mathutils' in globals() else __import__('mathutils').Vector((0.0, 0.0, _target_z))
 _radius = max(0.001, math.sqrt(_cam.location.x ** 2 + _cam.location.y ** 2))
 for _angle_name, _degrees in ${JSON.stringify(pairs)}:
@@ -91,27 +143,45 @@ export function generatePrelude(
 			: "",
 	].join("");
 	const quietActions = actions
-		? `\n        with redirect_stdout(io.StringIO()):${actions
+		? `\n        _blender_axi_normalize_scene()\n        with redirect_stdout(io.StringIO()):${actions
 				.split("\n")
 				.map((line) => `\n            ${line}`)
 				.join("")}`
+		: "";
+	const summary = options.summarize
+		? `\n        _blender_axi_normalize_scene()\n        with redirect_stdout(io.StringIO()):\n            _blender_axi_summary = _blender_axi_scene_summary()`
+		: "";
+	const summaryField = options.summarize
+		? `, "scene": _blender_axi_summary`
 		: "";
 
 	return `${normalizedPrelude()}_blender_axi_stdout = io.StringIO()
 _blender_axi_artifacts = []
 try:
     with redirect_stdout(_blender_axi_stdout):
-        exec(compile(${JSON.stringify(source)}, ${JSON.stringify(filename)}, 'exec'), globals(), globals())${quietActions}
-    print(${JSON.stringify(RESULT_MARKER)} + json.dumps({"ok": True, "stdout": _blender_axi_stdout.getvalue(), "artifacts": _blender_axi_artifacts}))
+        exec(_blender_axi_compile(${JSON.stringify(source)}, ${JSON.stringify(filename)}), globals(), globals())${quietActions}${summary}
+    print(${JSON.stringify(RESULT_MARKER)} + json.dumps({"ok": True, "stdout": _blender_axi_stdout.getvalue(), "artifacts": _blender_axi_artifacts${summaryField}}))
 except Exception as _blender_axi_exc:
     print(${JSON.stringify(RESULT_MARKER)} + json.dumps({"ok": False, "error": str(_blender_axi_exc), "traceback": traceback.format_exc(), "stdout_before_failure": _blender_axi_stdout.getvalue()}))
+finally:
+    for _override in reversed(_blender_axi_context_overrides):
+        _override.__exit__(*sys.exc_info())
 `;
+}
+
+export interface SceneSummary {
+	objects: number;
+	meshes: number;
+	triangles: number;
+	materials: number;
+	collections: number;
 }
 
 interface ExecutionSuccess {
 	ok: true;
 	stdout: string;
 	artifacts: string[];
+	scene?: SceneSummary;
 }
 
 interface ExecutionFailure {

@@ -51,8 +51,8 @@ require an MCP server or patched addon.
 ## Workflow
 
 1. Run \`npx -y blender-axi ping\` to confirm the selected Blender addon listener is available.
-2. Run \`npx -y blender-axi scene\` for compact scene counts and summaries. Use \`--full\` only
-   when all objects, collections, and materials are needed; add object columns with \`--fields\`.
+2. Run \`npx -y blender-axi scene\` for aggregate scene counts. Add \`--fields name,type\` only
+   when object detail is needed; use \`--full\` for every object's name and type.
 3. Run \`npx -y blender-axi exec <file|->\` for Python. Failures return the exception, full
    traceback, and stdout produced before failure. Use \`--full\` if long output is truncated.
 4. Run \`npx -y blender-axi build <file> --save <path> --render front,side --glb <path>\` when

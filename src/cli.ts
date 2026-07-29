@@ -57,10 +57,10 @@ Write camera renders to PNG files.
 flags[5]: --out <dir> (default cwd), --res <WxH> (keep scene resolution), --launch, --json, --full
 examples[2]: blender-axi render front,side, blender-axi render tq --out /tmp/renders --res 880x1180
 `,
-	scene: `usage: blender-axi scene [--fields <visible,selected,vertices>] [--full] [--launch] [--json]
-Show counts and compact object, collection, and material summaries. Lists default to 20 items.
-flags[4]: --fields <fields> (add object columns), --full (show all items), --launch, --json
-examples[2]: blender-axi scene, blender-axi scene --fields visible,vertices --full
+	scene: `usage: blender-axi scene [--fields <name,type,visible,selected,vertices>] [--full] [--launch] [--json]
+Show aggregate object, mesh, triangle, material, and collection counts.
+flags[4]: --fields <fields> (include object detail with selected columns), --full (include all objects with name,type), --launch, --json
+examples[2]: blender-axi scene, blender-axi scene --fields name,type,vertices
 `,
 	start: `usage: blender-axi start [--json]
 Launch a Blender GUI owned by this session and wait for its addon port.
@@ -80,8 +80,9 @@ examples[2]: blender-axi setup hooks, npx -y blender-axi setup hooks
 };
 
 const ANGLES = new Set(["front", "side", "back", "tq"]);
-const SCENE_DEFAULT_FIELDS = ["name", "type"] as const;
-const SCENE_EXTRA_FIELDS: Record<string, string> = {
+const SCENE_FIELDS: Record<string, string> = {
+	name: "o.name",
+	type: "o.type",
 	visible: "o.visible_get()",
 	selected: "o.select_get()",
 	vertices: "len(o.data.vertices) if o.type == 'MESH' else None",
@@ -181,6 +182,7 @@ const buildCommand: SessionCommand = async (args, context) => {
 			glb,
 			renderAngles,
 			renderOutDir: defaultRenderDirectory(save),
+			summarize: true,
 		}),
 		parsed.flags.has("--json"),
 		parsed.flags.has("--full"),
@@ -212,59 +214,26 @@ const renderCommand: SessionCommand = async (args, context) => {
 };
 
 export function sceneSource(fields: string[], full: boolean): string {
-	const objectFields = [
-		...SCENE_DEFAULT_FIELDS.map(
-			(field) => `${JSON.stringify(field)}: o.${field}`,
-		),
-		...fields.map(
-			(field) => `${JSON.stringify(field)}: ${SCENE_EXTRA_FIELDS[field]}`,
-		),
-	].join(", ");
-	const limit = full ? "" : "[:20]";
-	return `print(json.dumps({
-  "name": C.scene.name,
-  "objects": {"count": len(C.scene.objects), "items": [{${objectFields}} for o in list(C.scene.objects)${limit}]},
-  "collections": {"count": len(D.collections), "items": [c.name for c in list(D.collections)${limit}]},
-  "materials": {"count": len(D.materials), "items": [m.name for m in list(D.materials)${limit}]}
-}))`;
+	const objectFields = fields
+		.map((field) => `${JSON.stringify(field)}: ${SCENE_FIELDS[field]}`)
+		.join(", ");
+	const details = full || fields.length;
+	return `_summary = _blender_axi_scene_summary()
+_summary["name"] = C.scene.name
+${details ? `_summary["items"] = [{${objectFields || '"name": o.name, "type": o.type'}} for o in C.scene.objects]` : ""}
+print(json.dumps(_summary))`;
 }
 
 function sceneFields(value?: string): string[] {
 	if (!value) return [];
 	const fields = [...new Set(value.split(",").filter(Boolean))];
-	const invalid = fields.filter((field) => !(field in SCENE_EXTRA_FIELDS));
+	const invalid = fields.filter((field) => !(field in SCENE_FIELDS));
 	if (invalid.length) {
 		throw usage(`Unknown scene field(s): ${invalid.join(",")}`, [
-			`Valid additional fields: ${Object.keys(SCENE_EXTRA_FIELDS).join(",")}`,
+			`Valid fields: ${Object.keys(SCENE_FIELDS).join(",")}`,
 		]);
 	}
 	return fields;
-}
-
-function addSceneDisclosure(
-	summary: Record<string, unknown>,
-	fields: string[],
-): Record<string, unknown> {
-	const truncated: string[] = [];
-	for (const key of ["objects", "collections", "materials"]) {
-		const group = summary[key];
-		if (!group || typeof group !== "object") continue;
-		const { count, items } = group as { count?: unknown; items?: unknown };
-		if (
-			typeof count === "number" &&
-			Array.isArray(items) &&
-			items.length < count
-		)
-			truncated.push(`${count} ${key}`);
-	}
-	if (!truncated.length) return summary;
-	const fieldFlag = fields.length ? ` --fields ${fields.join(",")}` : "";
-	return {
-		...summary,
-		help: [
-			`Run \`blender-axi scene --full${fieldFlag}\` to show all ${truncated.join(", ")}`,
-		],
-	};
 }
 
 const sceneCommand: SessionCommand = async (args, context) => {
@@ -288,8 +257,7 @@ const sceneCommand: SessionCommand = async (args, context) => {
 	} catch {
 		throw new Error("Blender scene summary was invalid JSON");
 	}
-	const output = full ? summary : addSceneDisclosure(summary, fields);
-	return parsed.flags.has("--json") ? JSON.stringify(output) : output;
+	return parsed.flags.has("--json") ? JSON.stringify(summary) : summary;
 };
 
 const startCommand: SessionCommand = async (args, context) => {
@@ -414,6 +382,14 @@ export function executionOutput(
 		"ok: true",
 		multilineField("stdout", stdout.value),
 		`artifacts[${result.artifacts.length}]:${result.artifacts.length ? `\n${result.artifacts.map((path) => `  - ${JSON.stringify(path)}`).join("\n")}` : " []"}`,
+		...(result.scene
+			? [
+					`scene:`,
+					...Object.entries(result.scene).map(
+						([key, value]) => `  ${key}: ${value}`,
+					),
+				]
+			: []),
 		...(help ? [`help[1]: ${help}`] : []),
 	].join("\n");
 }
