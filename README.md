@@ -13,8 +13,8 @@ Beyond the resident cost, `blender-axi` is shaped so each invocation returns les
 - **TOON output, not JSON.** Structured results render as compact key/value and tabular text instead of brace-and-quote-heavy JSON. `--json` is there when a machine-readable envelope is genuinely wanted.
 - **Aggregates before detail.** `scene` returns counts first, so the common "how big is this scene" question costs a handful of lines instead of a full object dump. Object rows are opt-in via `--fields` / `--full`.
 - **One round-trip for a whole build.** `build` runs your script, saves, exports glTF, and renders camera angles in a single socket request, and returns the resulting scene aggregate — instead of five tool calls and five responses.
-- **Failures arrive complete.** `exec` wraps your script so a crash returns the exception, the full Python traceback, and the stdout printed *before* the failure. No follow-up call to ask "what actually broke".
-- **Long output is truncated with an escape hatch.** Output over 1500 characters is cut with its total size and a `--full` hint, so one chatty script can't flood the context.
+- **Failures arrive actionable.** `exec` wraps your script so a crash returns the exception, its Python traceback, and the stdout printed *before* the failure. No follow-up call to ask "what actually broke".
+- **Long output is truncated with an escape hatch.** Execution stdout and traceback fields over 1500 characters are cut with their total size and a `--full` hint, so one chatty script can't flood the context.
 
 ## Prerequisites
 
