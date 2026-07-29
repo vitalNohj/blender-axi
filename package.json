@@ -1,0 +1,33 @@
+{
+  "name": "blender-axi",
+  "version": "0.1.0",
+  "description": "AXI CLI for driving Blender through the stock BlenderMCP TCP addon",
+  "type": "module",
+  "bin": {
+    "blender-axi": "dist/bin/blender-axi.js"
+  },
+  "files": [
+    "dist/**/*.js",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "dev": "tsx bin/blender-axi.ts",
+    "prepack": "npm run build"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "axi-sdk-js": "^0.1.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}
