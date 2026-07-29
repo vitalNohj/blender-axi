@@ -2,6 +2,24 @@
   "name": "blender-axi",
   "version": "0.1.0",
   "description": "AXI CLI for driving Blender through the stock BlenderMCP TCP addon",
+  "license": "MIT",
+  "author": "Nohj",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vitalNohj/blender-axi.git"
+  },
+  "homepage": "https://github.com/vitalNohj/blender-axi#readme",
+  "bugs": "https://github.com/vitalNohj/blender-axi/issues",
+  "keywords": [
+    "blender",
+    "blendermcp",
+    "bpy",
+    "3d",
+    "rendering",
+    "axi",
+    "cli",
+    "agent"
+  ],
   "type": "module",
   "bin": {
     "blender-axi": "dist/bin/blender-axi.js"
@@ -9,7 +27,8 @@
   "files": [
     "dist/**/*.js",
     "skills/blender-axi",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "build": "tsc",
@@ -19,7 +38,6 @@
     "dev": "tsx bin/blender-axi.ts",
     "prepack": "npm run build && npm run build:skill -- --check"
   },
-  "license": "MIT",
   "engines": {
     "node": ">=20"
   },

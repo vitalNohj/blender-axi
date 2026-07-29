@@ -1,2 +1,19 @@
+# Dependencies and build output
 node_modules/
 dist/
+*.tsbuildinfo
+*.tgz
+
+# Environment files
+.env
+.env.*
+
+# Blender and generated artifacts
+*.blend
+*.blend[0-9]
+*.glb
+*.gltf
+render-*.png
+
+# OS and editor cruft
+.DS_Store
