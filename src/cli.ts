@@ -23,8 +23,8 @@ export const DESCRIPTION =
 export const TOP_HELP = `usage: blender-axi [command] [args] [flags]
 commands[8]:
   (none)=connection status, ping, exec, build, render, scene, start, stop, setup
-flags[4]:
-  --launch (start Blender only when needed), --json, --help, -v/-V/--version
+flags[5]:
+  --launch (start Blender only when needed), --json, --full, --help, -v/-V/--version
 session env[2]:
   BLENDER_AXI_SESSION, BLENDER_AXI_PORT
 examples:
@@ -37,22 +37,56 @@ examples:
 `;
 
 export const COMMAND_HELP: Record<string, string> = {
-	ping: "usage: blender-axi ping [--launch] [--json]\nConfirm the session's Blender addon is listening.\n",
-	exec: "usage: blender-axi exec <file|-> [--launch] [--json]\nExecute Python with guaranteed traceback and pre-failure stdout capture.\n",
-	build:
-		"usage: blender-axi build <file> [--save <path>] [--render <front,side,back,tq>] [--glb <path>] [--launch] [--json]\nBuild, save, export, and render atomically in one socket round-trip.\n",
-	render:
-		"usage: blender-axi render <front,side,back,tq> [--out <dir>] [--res <WxH>] [--launch] [--json]\nWrite camera renders to PNG files.\n",
-	scene:
-		"usage: blender-axi scene [--launch] [--json]\nShow object, collection, and material counts and object summaries.\n",
-	start:
-		"usage: blender-axi start [--json]\nLaunch a Blender GUI owned by this session and wait for its addon port.\n",
-	stop: "usage: blender-axi stop [--json]\nStop only the Blender process previously launched by this session.\n",
-	setup:
-		"usage: blender-axi setup hooks\nInstall or repair SessionStart hooks for Claude Code, Codex, and OpenCode.\n",
+	ping: `usage: blender-axi ping [--launch] [--json]
+Confirm the session's Blender addon is listening.
+flags[2]: --launch (default false), --json (default false)
+examples[2]: blender-axi ping, blender-axi ping --launch
+`,
+	exec: `usage: blender-axi exec <file|-> [--launch] [--json] [--full]
+Execute Python with guaranteed traceback and pre-failure stdout capture.
+flags[3]: --launch (default false), --json (default false), --full (do not truncate output)
+examples[2]: blender-axi exec script.py, cat script.py | blender-axi exec -
+`,
+	build: `usage: blender-axi build <file> [--save <path>] [--render <front,side,back,tq>] [--glb <path>] [--launch] [--json] [--full]
+Build, save, export, and render atomically in one socket round-trip.
+flags[6]: --save <path>, --render <angles>, --glb <path>, --launch, --json, --full
+examples[2]: blender-axi build build.py --save /tmp/model.blend, blender-axi build build.py --render front,side --glb /tmp/model.glb
+`,
+	render: `usage: blender-axi render <front,side,back,tq> [--out <dir>] [--res <WxH>] [--launch] [--json] [--full]
+Write camera renders to PNG files.
+flags[5]: --out <dir> (default cwd), --res <WxH> (keep scene resolution), --launch, --json, --full
+examples[2]: blender-axi render front,side, blender-axi render tq --out /tmp/renders --res 880x1180
+`,
+	scene: `usage: blender-axi scene [--fields <visible,selected,vertices>] [--full] [--launch] [--json]
+Show counts and compact object, collection, and material summaries. Lists default to 20 items.
+flags[4]: --fields <fields> (add object columns), --full (show all items), --launch, --json
+examples[2]: blender-axi scene, blender-axi scene --fields visible,vertices --full
+`,
+	start: `usage: blender-axi start [--json]
+Launch a Blender GUI owned by this session and wait for its addon port.
+flags[1]: --json (default false)
+examples[2]: blender-axi start, BLENDER_AXI_SESSION=worker-1 blender-axi start
+`,
+	stop: `usage: blender-axi stop [--json]
+Stop only the Blender process previously launched by this session.
+flags[1]: --json (default false)
+examples[2]: blender-axi stop, BLENDER_AXI_SESSION=worker-1 blender-axi stop
+`,
+	setup: `usage: blender-axi setup hooks
+Install or repair SessionStart hooks for Claude Code, Codex, and OpenCode.
+flags[0]:
+examples[2]: blender-axi setup hooks, npx -y blender-axi setup hooks
+`,
 };
 
 const ANGLES = new Set(["front", "side", "back", "tq"]);
+const SCENE_DEFAULT_FIELDS = ["name", "type"] as const;
+const SCENE_EXTRA_FIELDS: Record<string, string> = {
+	visible: "o.visible_get()",
+	selected: "o.select_get()",
+	vertices: "len(o.data.vertices) if o.type == 'MESH' else None",
+};
+const CONTENT_PREVIEW_LIMIT = 1500;
 
 type AxiRenderable = string | Record<string, unknown>;
 type SessionCommand = (
@@ -68,14 +102,11 @@ function withContext(command: SessionCommand): Command {
 function jsonOr(
 	value: Record<string, unknown>,
 	json: boolean,
-	text: string,
 ): AxiRenderable {
-	return json ? JSON.stringify(value) : text;
+	return json ? JSON.stringify(value) : value;
 }
 
-function parseCommon(args: string[], valueFlags: string[] = []) {
-	return parseArgs(args, valueFlags, ["--json", "--launch"]);
-}
+const parseCommon = parseArgs;
 
 function parseAngles(value: string): string[] {
 	const angles = value.split(",").filter(Boolean);
@@ -114,30 +145,31 @@ async function connected(
 }
 
 const pingCommand: SessionCommand = async (args, context) => {
-	const parsed = parseCommon(args);
+	const parsed = parseCommon(args, [], ["--json", "--launch"]);
 	requirePositionals(parsed, 0, "blender-axi ping [--launch] [--json]");
 	await connected(context, parsed.flags.has("--launch"));
 	const value = { ok: true, session: context.session, port: context.port };
-	return jsonOr(
-		value,
-		parsed.flags.has("--json"),
-		`ok: true\nsession: ${context.session}\nport: ${context.port}`,
-	);
+	return jsonOr(value, parsed.flags.has("--json"));
 };
 
 const execCommand: SessionCommand = async (args, context) => {
-	const parsed = parseCommon(args);
+	const parsed = parseCommon(args, [], ["--json", "--launch", "--full"]);
 	const [file] = requirePositionals(parsed, 1, "blender-axi exec <file|->");
 	await connected(context, parsed.flags.has("--launch"));
 	const { source, filename } = readPythonSource(file);
 	return executionOutput(
 		await executeSource(context, source, { filename }),
 		parsed.flags.has("--json"),
+		parsed.flags.has("--full"),
 	);
 };
 
 const buildCommand: SessionCommand = async (args, context) => {
-	const parsed = parseCommon(args, ["--save", "--render", "--glb"]);
+	const parsed = parseCommon(
+		args,
+		["--save", "--render", "--glb"],
+		["--json", "--launch", "--full"],
+	);
 	const [file] = requirePositionals(parsed, 1, "blender-axi build <file>");
 	const save = flagString(parsed, "--save");
 	const glb = flagString(parsed, "--glb");
@@ -154,11 +186,16 @@ const buildCommand: SessionCommand = async (args, context) => {
 			renderOutDir: defaultRenderDirectory(save),
 		}),
 		parsed.flags.has("--json"),
+		parsed.flags.has("--full"),
 	);
 };
 
 const renderCommand: SessionCommand = async (args, context) => {
-	const parsed = parseCommon(args, ["--out", "--res"]);
+	const parsed = parseCommon(
+		args,
+		["--out", "--res"],
+		["--json", "--launch", "--full"],
+	);
 	const [angleValue] = requirePositionals(
 		parsed,
 		1,
@@ -173,31 +210,81 @@ const renderCommand: SessionCommand = async (args, context) => {
 			resolution: parseResolution(flagString(parsed, "--res")),
 		}),
 		parsed.flags.has("--json"),
+		parsed.flags.has("--full"),
 	);
 };
 
-const sceneCommand: SessionCommand = async (args, context) => {
-	const parsed = parseCommon(args);
-	requirePositionals(parsed, 0, "blender-axi scene");
-	await connected(context, parsed.flags.has("--launch"));
-	const result = await executeSource(
-		context,
-		`print(json.dumps({
+export function sceneSource(fields: string[], full: boolean): string {
+	const objectFields = [
+		...SCENE_DEFAULT_FIELDS.map((field) => `${JSON.stringify(field)}: o.${field}`),
+		...fields.map((field) => `${JSON.stringify(field)}: ${SCENE_EXTRA_FIELDS[field]}`),
+	].join(", ");
+	const limit = full ? "" : "[:20]";
+	return `print(json.dumps({
   "name": C.scene.name,
-  "objects": {"count": len(C.scene.objects), "items": [{"name": o.name, "type": o.type} for o in list(C.scene.objects)[:20]]},
-  "collections": {"count": len(D.collections), "items": [c.name for c in list(D.collections)[:20]]},
-  "materials": {"count": len(D.materials), "items": [m.name for m in list(D.materials)[:20]]}
-}))`,
-		{ filename: "<blender-axi-scene>" },
+  "objects": {"count": len(C.scene.objects), "items": [{${objectFields}} for o in list(C.scene.objects)${limit}]},
+  "collections": {"count": len(D.collections), "items": [c.name for c in list(D.collections)${limit}]},
+  "materials": {"count": len(D.materials), "items": [m.name for m in list(D.materials)${limit}]}
+}))`;
+}
+
+function sceneFields(value?: string): string[] {
+	if (!value) return [];
+	const fields = [...new Set(value.split(",").filter(Boolean))];
+	const invalid = fields.filter((field) => !(field in SCENE_EXTRA_FIELDS));
+	if (invalid.length) {
+		throw usage(`Unknown scene field(s): ${invalid.join(",")}`, [
+			`Valid additional fields: ${Object.keys(SCENE_EXTRA_FIELDS).join(",")}`,
+		]);
+	}
+	return fields;
+}
+
+function addSceneDisclosure(
+	summary: Record<string, unknown>,
+	fields: string[],
+): Record<string, unknown> {
+	const truncated: string[] = [];
+	for (const key of ["objects", "collections", "materials"]) {
+		const group = summary[key];
+		if (!group || typeof group !== "object") continue;
+		const { count, items } = group as { count?: unknown; items?: unknown };
+		if (typeof count === "number" && Array.isArray(items) && items.length < count)
+			truncated.push(`${count} ${key}`);
+	}
+	if (!truncated.length) return summary;
+	const fieldFlag = fields.length ? ` --fields ${fields.join(",")}` : "";
+	return {
+		...summary,
+		help: [
+			`Run \`blender-axi scene --full${fieldFlag}\` to show all ${truncated.join(", ")}`,
+		],
+	};
+}
+
+const sceneCommand: SessionCommand = async (args, context) => {
+	const parsed = parseCommon(
+		args,
+		["--fields"],
+		["--json", "--launch", "--full"],
 	);
-	if (!result.ok) return executionOutput(result, parsed.flags.has("--json"));
+	requirePositionals(parsed, 0, "blender-axi scene");
+	const fields = sceneFields(flagString(parsed, "--fields"));
+	const full = parsed.flags.has("--full");
+	await connected(context, parsed.flags.has("--launch"));
+	const result = await executeSource(context, sceneSource(fields, full), {
+		filename: "<blender-axi-scene>",
+	});
+	if (!result.ok)
+		return executionOutput(result, parsed.flags.has("--json"), full);
 	let summary: Record<string, unknown>;
 	try {
 		summary = JSON.parse(result.stdout) as Record<string, unknown>;
 	} catch {
 		throw new Error("Blender scene summary was invalid JSON");
 	}
-	return parsed.flags.has("--json") ? JSON.stringify(summary) : summary;
+	const output = full ? summary : addSceneDisclosure(summary, fields);
+	return parsed.flags.has("--json") ? JSON.stringify(output) : output;
 };
 
 const startCommand: SessionCommand = async (args, context) => {
@@ -213,7 +300,6 @@ const startCommand: SessionCommand = async (args, context) => {
 				port: context.port,
 			},
 			parsed.flags.has("--json"),
-			`status: already-running\nsession: ${context.session}\nport: ${context.port}`,
 		);
 	} catch {
 		const pid = await launchBlender(context);
@@ -226,7 +312,6 @@ const startCommand: SessionCommand = async (args, context) => {
 				port: context.port,
 			},
 			parsed.flags.has("--json"),
-			`status: started\npid: ${pid}\nsession: ${context.session}\nport: ${context.port}`,
 		);
 	}
 };
@@ -237,11 +322,15 @@ const stopCommand: SessionCommand = (args, context) => {
 	const pid = stopBlender(context);
 	const status = pid ? "stopped" : "not-owned";
 	return jsonOr(
-		{ ok: true, status, ...(pid ? { pid } : {}) },
+		{
+			ok: true,
+			status,
+			...(pid ? { pid } : {}),
+			...(!pid
+				? { message: "no Blender process was launched by this session" }
+				: {}),
+		},
 		parsed.flags.has("--json"),
-		pid
-			? `status: stopped\npid: ${pid}`
-			: "status: not-owned\nmessage: no Blender process was launched by this session",
 	);
 };
 
@@ -269,30 +358,43 @@ const setupCommand: Command = (args) => {
 			};
 };
 
+export function contentPreview(value: string, full: boolean) {
+	if (full || value.length <= CONTENT_PREVIEW_LIMIT)
+		return { value, truncated: false };
+	return {
+		value: `${value.slice(0, CONTENT_PREVIEW_LIMIT)}\n... (truncated, ${value.length} chars total)`,
+		truncated: true,
+	};
+}
+
 function executionOutput(
 	result: Awaited<ReturnType<typeof executeSource>>,
 	json: boolean,
+	full: boolean,
 ): AxiRenderable {
 	if (!result.ok) {
 		process.exitCode = 1;
-		return json
-			? JSON.stringify(result)
-			: `ok: false\nerror: ${result.error}\nstdout_before_failure: |\n${indent(result.stdout_before_failure)}\ntraceback: |\n${indent(result.traceback)}`;
+		const stdout = contentPreview(result.stdout_before_failure, full);
+		const traceback = contentPreview(result.traceback, full);
+		const output = {
+			...result,
+			stdout_before_failure: stdout.value,
+			traceback: traceback.value,
+			...((stdout.truncated || traceback.truncated) && {
+				help: ["Re-run the command with `--full` to show complete failure output"],
+			}),
+		};
+		return json ? JSON.stringify(output) : output;
 	}
-	if (json) return JSON.stringify(result);
-	const chunks = [result.stdout.trimEnd()];
-	if (result.artifacts.length)
-		chunks.push(
-			`artifacts[${result.artifacts.length}]:\n${result.artifacts.map((path) => `  - ${path}`).join("\n")}`,
-		);
-	return chunks.filter(Boolean).join("\n");
-}
-
-function indent(value: string): string {
-	return value
-		.split(/\r?\n/)
-		.map((line) => `  ${line}`)
-		.join("\n");
+	const stdout = contentPreview(result.stdout, full);
+	const output = {
+		...result,
+		stdout: stdout.value,
+		...(stdout.truncated && {
+			help: ["Re-run the command with `--full` to show complete stdout"],
+		}),
+	};
+	return json ? JSON.stringify(output) : output;
 }
 
 const COMMANDS: Record<string, Command> = {

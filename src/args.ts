@@ -29,7 +29,9 @@ export function parseArgs(
 			continue;
 		}
 		if (!values.has(name)) {
-			throw usage(`Unknown flag ${name}`, [...values, ...booleans]);
+			throw usage(`Unknown flag ${name}`, [
+				`Valid flags: ${[...values, ...booleans, "--help"].join(", ") || "--help"}`,
+			]);
 		}
 		const value = equals >= 0 ? arg.slice(equals + 1) : args[++i];
 		if (!value || value.startsWith("--"))

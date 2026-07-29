@@ -1,3 +1,4 @@
+import { AxiError } from "axi-sdk-js";
 import { describe, expect, it } from "vitest";
 import { parseArgs } from "./args.js";
 
@@ -15,8 +16,19 @@ describe("argument parsing", () => {
 		});
 	});
 
-	it("rejects unknown and missing-value flags", () => {
-		expect(() => parseArgs(["--wat"], [])).toThrow(/Unknown flag --wat/);
+	it("rejects unknown flags with a complete valid-flag hint", () => {
+		try {
+			parseArgs(["--wat"], ["--save"]);
+			expect.fail("expected usage error");
+		} catch (error) {
+			expect(error).toBeInstanceOf(AxiError);
+			expect((error as AxiError).suggestions).toEqual([
+				"Valid flags: --save, --json, --launch, --help",
+			]);
+		}
+	});
+
+	it("rejects missing value flags", () => {
 		expect(() => parseArgs(["--save"], ["--save"])).toThrow(/requires a value/);
 	});
 });

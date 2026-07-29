@@ -53,4 +53,12 @@ describe("prelude", () => {
 			),
 		).toMatchObject({ ok: false, traceback: "Traceback" });
 	});
+
+	it("preserves definitive empty success output", () => {
+		expect(
+			parseExecutionOutput(
+				`${RESULT_MARKER}{"ok":true,"stdout":"","artifacts":[]}\n`,
+			),
+		).toEqual({ ok: true, stdout: "", artifacts: [] });
+	});
 });
