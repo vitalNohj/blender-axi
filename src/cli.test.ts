@@ -1,7 +1,12 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { decode } from "@toon-format/toon";
 import { runAxiCli } from "axi-sdk-js";
-import { contentPreview, main, sceneSource } from "./cli.js";
+import {
+	contentPreview,
+	executionOutput,
+	main,
+	sceneSource,
+} from "./cli.js";
 import { createSkillMarkdown } from "./skill.js";
 
 afterEach(() => {
@@ -76,6 +81,23 @@ materials:
 		});
 		expect(output).toBe(`${expected}\n`);
 		expect(decode(expected)).toEqual(value);
+	});
+
+	it("renders execution text with real newlines while preserving JSON", () => {
+		const result = {
+			ok: false as const,
+			error: "missing object",
+			stdout_before_failure: "before\n",
+			traceback: "Traceback (most recent call last):\n  File \"broken.py\", line 1\nKeyError: nope\n",
+		};
+		const rendered = executionOutput(result, false, false);
+		expect(rendered).toContain(
+			'traceback: |\n  Traceback (most recent call last):\n    File "broken.py", line 1\n  KeyError: nope',
+		);
+		expect(rendered).not.toContain("\\n");
+		expect(JSON.parse(executionOutput(result, true, false) as string)).toEqual(
+			result,
+		);
 	});
 
 	it("truncates long content with total size and a full escape hatch", () => {

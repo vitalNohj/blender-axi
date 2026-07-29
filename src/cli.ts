@@ -372,7 +372,7 @@ export function contentPreview(value: string, full: boolean) {
 	};
 }
 
-function executionOutput(
+export function executionOutput(
 	result: Awaited<ReturnType<typeof executeSource>>,
 	json: boolean,
 	full: boolean,
@@ -381,27 +381,47 @@ function executionOutput(
 		process.exitCode = 1;
 		const stdout = contentPreview(result.stdout_before_failure, full);
 		const traceback = contentPreview(result.traceback, full);
+		const help =
+			stdout.truncated || traceback.truncated
+				? "Re-run the command with `--full` to show complete failure output"
+				: undefined;
 		const output = {
 			...result,
 			stdout_before_failure: stdout.value,
 			traceback: traceback.value,
-			...((stdout.truncated || traceback.truncated) && {
-				help: [
-					"Re-run the command with `--full` to show complete failure output",
-				],
-			}),
+			...(help && { help: [help] }),
 		};
-		return json ? JSON.stringify(output) : output;
+		if (json) return JSON.stringify(output);
+		return [
+			"ok: false",
+			`error: ${JSON.stringify(result.error)}`,
+			multilineField("stdout_before_failure", stdout.value),
+			multilineField("traceback", traceback.value),
+			...(help ? [`help[1]: ${help}`] : []),
+		].join("\n");
 	}
 	const stdout = contentPreview(result.stdout, full);
+	const help = stdout.truncated
+		? "Re-run the command with `--full` to show complete stdout"
+		: undefined;
 	const output = {
 		...result,
 		stdout: stdout.value,
-		...(stdout.truncated && {
-			help: ["Re-run the command with `--full` to show complete stdout"],
-		}),
+		...(help && { help: [help] }),
 	};
-	return json ? JSON.stringify(output) : output;
+	if (json) return JSON.stringify(output);
+	return [
+		"ok: true",
+		multilineField("stdout", stdout.value),
+		`artifacts[${result.artifacts.length}]:${result.artifacts.length ? `\n${result.artifacts.map((path) => `  - ${JSON.stringify(path)}`).join("\n")}` : " []"}`,
+		...(help ? [`help[1]: ${help}`] : []),
+	].join("\n");
+}
+
+function multilineField(name: string, value: string): string {
+	const lines = value.replaceAll("\r\n", "\n").split("\n");
+	if (lines.at(-1) === "") lines.pop();
+	return `${name}: |${lines.length ? `\n${lines.map((line) => `  ${line}`).join("\n")}` : ""}`;
 }
 
 const COMMANDS: Record<string, Command> = {
