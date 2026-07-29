@@ -1,12 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { decode } from "@toon-format/toon";
 import { runAxiCli } from "axi-sdk-js";
-import {
-	contentPreview,
-	executionOutput,
-	main,
-	sceneSource,
-} from "./cli.js";
+import { contentPreview, executionOutput, main, sceneSource } from "./cli.js";
 import { createSkillMarkdown } from "./skill.js";
 
 afterEach(() => {
@@ -88,7 +83,8 @@ materials:
 			ok: false as const,
 			error: "missing object",
 			stdout_before_failure: "before\n",
-			traceback: "Traceback (most recent call last):\n  File \"broken.py\", line 1\nKeyError: nope\n",
+			traceback:
+				'Traceback (most recent call last):\n  File "broken.py", line 1\nKeyError: nope\n',
 		};
 		const rendered = executionOutput(result, false, false);
 		expect(rendered).toContain(
