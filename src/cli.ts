@@ -220,7 +220,7 @@ export function sceneSource(fields: string[], full: boolean): string {
 	const details = full || fields.length;
 	return `_summary = _blender_axi_scene_summary()
 _summary["name"] = C.scene.name
-${details ? `_summary["items"] = [{${objectFields || '"name": o.name, "type": o.type'}} for o in C.scene.objects]` : ""}
+${details ? `_summary["items"] = [{${objectFields || '"name": o.name, "type": o.type'}} for o in C.scene.objects]` : `_summary["help"] = [f"Run \`blender-axi scene --full\` to show all {_summary['objects']} objects"]`}
 print(json.dumps(_summary))`;
 }
 

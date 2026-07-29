@@ -112,6 +112,7 @@ materials:
 		const compact = sceneSource([], false);
 		expect(compact).toContain("_blender_axi_scene_summary()");
 		expect(compact).not.toContain('"items"');
+		expect(compact).toContain("blender-axi scene --full");
 
 		const expanded = sceneSource(["visible", "vertices"], false);
 		expect(expanded).toContain('"visible": o.visible_get()');
