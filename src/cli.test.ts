@@ -117,7 +117,7 @@ materials:
 		const expanded = sceneSource(["visible", "vertices"], false);
 		expect(expanded).toContain('"visible": o.visible_get()');
 		expect(expanded).toContain('"vertices": len(o.data.vertices)');
-		expect(expanded).toContain('for o in C.scene.objects');
+		expect(expanded).toContain("for o in C.scene.objects");
 
 		const full = sceneSource([], true);
 		expect(full).toContain('"name": o.name, "type": o.type');
@@ -140,7 +140,9 @@ materials:
 			false,
 			false,
 		);
-		expect(rendered).toContain("scene:\n  objects: 3\n  meshes: 1\n  triangles: 12");
+		expect(rendered).toContain(
+			"scene:\n  objects: 3\n  meshes: 1\n  triangles: 12",
+		);
 	});
 
 	it("generates a static skill with only npx command examples", () => {

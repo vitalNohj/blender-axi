@@ -30,14 +30,22 @@ describe("prelude", () => {
 			save: "/tmp/a.blend",
 			glb: "/tmp/a.glb",
 		});
-		expect(code).toContain("class _BlenderAxiResetTransformer(ast.NodeTransformer)");
-		expect(code).toContain("node.func = ast.copy_location(ast.Name(id='_blender_axi_read_homefile_and_normalize'");
+		expect(code).toContain(
+			"class _BlenderAxiResetTransformer(ast.NodeTransformer)",
+		);
+		expect(code).toContain(
+			"node.func = ast.copy_location(ast.Name(id='_blender_axi_read_homefile_and_normalize'",
+		);
 		expect(code).toContain("exec(_blender_axi_compile(");
 		expect(code).toContain("C.temp_override(window=_window)");
-		expect(code).toContain("_blender_axi_normalize_scene()\n        with redirect_stdout");
-		expect(code.indexOf("_blender_axi_normalize_scene()\n        with redirect_stdout")).toBeLessThan(
-			code.indexOf("save_as_mainfile"),
+		expect(code).toContain(
+			"_blender_axi_normalize_scene()\n        with redirect_stdout",
 		);
+		expect(
+			code.indexOf(
+				"_blender_axi_normalize_scene()\n        with redirect_stdout",
+			),
+		).toBeLessThan(code.indexOf("save_as_mainfile"));
 	});
 
 	it("creates a fallback camera when a reset scene has meshes but no camera", () => {
@@ -45,11 +53,11 @@ describe("prelude", () => {
 			renderAngles: ["front"],
 			renderOutDir: "/tmp",
 		});
-		expect(code).toContain('if _cam is None:');
+		expect(code).toContain("if _cam is None:");
 		expect(code).toContain('D.cameras.new("Camera")');
-		expect(code).toContain('_sc.camera = _cam');
+		expect(code).toContain("_sc.camera = _cam");
 		expect(code).toContain("if not any(o.type == 'LIGHT'");
-		expect(code).toContain('if not _mesh_objects:');
+		expect(code).toContain("if not _mesh_objects:");
 	});
 
 	it("orders save before glb export and rendering", () => {
