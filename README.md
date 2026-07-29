@@ -19,7 +19,7 @@ Beyond the resident cost, `blender-axi` is shaped so each invocation returns les
 ## Prerequisites
 
 - **Node 20+**
-- **Blender 3.0+** running as a GUI application
+- **Blender 3.2+** running as a GUI application
 - **The stock BlenderMCP addon (v1.2)** — used unmodified
 
 ## Install
@@ -143,7 +143,7 @@ scene:
   collections: 1
 ```
 
-Each flag is independent — use `--save` alone to just persist, or `--glb` alone to just export.
+The supported build action flags are `--save`, `--render`, and `--glb`. Each is independent — use `--save` alone to just persist, or `--glb` alone to just export. Build renders are written beside `--save`, or to the current directory when no `--save` path is given.
 
 ### Render for visual verification
 
@@ -157,7 +157,7 @@ Angles are a comma-separated subset of `front`, `side`, `back`, `tq` (three-quar
 
 Output is [TOON](https://github.com/toon-format/toon) — compact, structured, human- and agent-readable. Add `--json` for a JSON envelope.
 
-Every file written is reported in the `artifacts` list, so an agent never has to guess where output landed. Renders are named `render-<angle>.png`. `build --render` without `--out` writes beside `--save`; standalone `render` defaults to the current directory. Paths you pass are used as given, so prefer absolute paths outside your source tree — `/tmp` is a good default — to keep generated `.blend`, `.glb`, and `.png` files out of the repository.
+On success, CLI-managed `--save`, `--glb`, and `--render` actions that completed are reported in the `artifacts` list. Renders are named `render-<angle>.png`. Build renders are written beside `--save`, or to the current directory when no `--save` path is given; standalone `render` defaults to the current directory. On failure, the response contains `error`, `traceback`, and `stdout_before_failure` without an `artifacts` list, so files written before the failure are not reported. Arbitrary Python run by `exec` or `build` may also write files that the CLI does not track. Paths you pass are used as given, so prefer absolute paths outside your source tree — `/tmp` is a good default — to keep generated `.blend`, `.glb`, and `.png` files out of the repository.
 
 Exit codes: `0` success or idempotent no-op, `1` execution or connection failure, `2` invalid usage.
 
@@ -185,7 +185,7 @@ Process lifecycle is always explicit:
 - Ordinary commands **never** launch Blender. They fail clearly when the port is dead.
 - `--launch` opts a command into starting Blender only if it isn't already up.
 - `start` launches a Blender GUI owned by this session and waits for its addon port.
-- `stop` terminates **only** a process this same session launched and recorded. It never touches an unrelated GUI instance, and reports `not-owned` instead.
+- `stop` targets the PID recorded by this session and reports `not-owned` when no PID file exists. It trusts that recorded PID without verifying the process identity, so a stale PID reused by the operating system could be signalled.
 
 Note that `exec` and `build` run arbitrary Python inside Blender via the addon's `execute_code`. Only run scripts you trust.
 
@@ -230,6 +230,8 @@ npm run dev -- ping  # run from TypeScript source without building
 ```
 
 `skills/blender-axi/SKILL.md` is generated. Edit `src/skill.ts` and re-run `npm run build:skill`; `npm test` fails if the committed file is stale.
+
+Run `npm test` with `BLENDER_AXI_PORT` and `BLENDER_AXI_SESSION` unset and a reachable addon listener on the default port. The render usage-error test connects before validating angles.
 
 Live acceptance against a real Blender requires a GUI instance with the addon listener running, and should write artifacts outside the source tree.
 

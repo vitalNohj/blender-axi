@@ -10,7 +10,7 @@ dist/
 
 # Blender and generated artifacts
 *.blend
-*.blend[0-9]
+*.blend[0-9]*
 *.glb
 *.gltf
 render-*.png
