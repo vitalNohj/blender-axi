@@ -107,7 +107,11 @@ materials:
 		expect(skill).toContain("user-invocable: false");
 		expect(skill).toContain("metadata:\n  hermes:");
 		for (const line of skill.split("\n")) {
-			if (/blender-axi (?:ping|exec|build|render|scene|start|stop|setup)/.test(line))
+			if (
+				/blender-axi (?:ping|exec|build|render|scene|start|stop|setup)/.test(
+					line,
+				)
+			)
 				expect(line).toContain("npx -y blender-axi");
 		}
 		expect(skill).not.toContain("session: default");

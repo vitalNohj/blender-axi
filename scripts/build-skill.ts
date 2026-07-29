@@ -11,7 +11,9 @@ if (process.argv.slice(2).includes("--check")) {
 		actual = readFileSync(target, "utf8");
 	} catch {}
 	if (actual !== expected) {
-		console.error("skills/blender-axi/SKILL.md is stale; run `npm run build:skill`");
+		console.error(
+			"skills/blender-axi/SKILL.md is stale; run `npm run build:skill`",
+		);
 		process.exitCode = 1;
 	}
 } else {

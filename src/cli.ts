@@ -99,10 +99,7 @@ function withContext(command: SessionCommand): Command {
 	return (args) => command(args, resolveContext());
 }
 
-function jsonOr(
-	value: Record<string, unknown>,
-	json: boolean,
-): AxiRenderable {
+function jsonOr(value: Record<string, unknown>, json: boolean): AxiRenderable {
 	return json ? JSON.stringify(value) : value;
 }
 
@@ -216,8 +213,12 @@ const renderCommand: SessionCommand = async (args, context) => {
 
 export function sceneSource(fields: string[], full: boolean): string {
 	const objectFields = [
-		...SCENE_DEFAULT_FIELDS.map((field) => `${JSON.stringify(field)}: o.${field}`),
-		...fields.map((field) => `${JSON.stringify(field)}: ${SCENE_EXTRA_FIELDS[field]}`),
+		...SCENE_DEFAULT_FIELDS.map(
+			(field) => `${JSON.stringify(field)}: o.${field}`,
+		),
+		...fields.map(
+			(field) => `${JSON.stringify(field)}: ${SCENE_EXTRA_FIELDS[field]}`,
+		),
 	].join(", ");
 	const limit = full ? "" : "[:20]";
 	return `print(json.dumps({
@@ -249,7 +250,11 @@ function addSceneDisclosure(
 		const group = summary[key];
 		if (!group || typeof group !== "object") continue;
 		const { count, items } = group as { count?: unknown; items?: unknown };
-		if (typeof count === "number" && Array.isArray(items) && items.length < count)
+		if (
+			typeof count === "number" &&
+			Array.isArray(items) &&
+			items.length < count
+		)
 			truncated.push(`${count} ${key}`);
 	}
 	if (!truncated.length) return summary;
@@ -381,7 +386,9 @@ function executionOutput(
 			stdout_before_failure: stdout.value,
 			traceback: traceback.value,
 			...((stdout.truncated || traceback.truncated) && {
-				help: ["Re-run the command with `--full` to show complete failure output"],
+				help: [
+					"Re-run the command with `--full` to show complete failure output",
+				],
 			}),
 		};
 		return json ? JSON.stringify(output) : output;
