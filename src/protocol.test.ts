@@ -1,6 +1,11 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, it } from "vitest";
-import { encodeRequest, sendRequest, tryParseResponse } from "./protocol.js";
+import {
+	AddonProtocolError,
+	encodeRequest,
+	sendRequest,
+	tryParseResponse,
+} from "./protocol.js";
 
 class FakeSocket extends EventEmitter {
 	written?: Buffer;
@@ -33,6 +38,34 @@ describe("protocol", () => {
 		expect(
 			tryParseResponse(Buffer.from('{"status":"success"')),
 		).toBeUndefined();
+	});
+
+	it.each([
+		[
+			'{"status":"success"}',
+			"Malformed Blender addon response: success response missing result",
+		],
+		[
+			'{"status":"bogus"}',
+			'Malformed Blender addon response: unknown status "bogus"',
+		],
+		[
+			'{"status":"error"}',
+			"Malformed Blender addon response: error response missing message",
+		],
+		[
+			'{"status":"error","message":42}',
+			"Malformed Blender addon response: error response message must be a string",
+		],
+		[
+			"null",
+			"Malformed Blender addon response: expected an object",
+		],
+	])("rejects malformed response %s", (response, message) => {
+		expect(() => tryParseResponse(Buffer.from(response))).toThrowError(
+			AddonProtocolError,
+		);
+		expect(() => tryParseResponse(Buffer.from(response))).toThrowError(message);
 	});
 
 	it("reassembles chunked responses", async () => {

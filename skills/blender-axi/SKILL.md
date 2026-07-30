@@ -42,19 +42,10 @@ require an MCP server or patched addon.
 
 ```
 usage: npx -y blender-axi [command] [args] [flags]
-commands[8]:
-  (none)=connection status, ping, exec, build, render, scene, start, stop, setup
-flags[5]:
-  --launch (start Blender only when needed), --json, --full, --help, -v/-V/--version
-session env[2]:
-  BLENDER_AXI_SESSION, BLENDER_AXI_PORT
-examples:
-  npx -y blender-axi ping
-  npx -y blender-axi exec script.py
-  npx -y blender-axi build build.py --save /tmp/model.blend --render front,side --glb /tmp/model.glb
-  npx -y blender-axi render front,side --out /tmp/renders --res 880x1180
-  npx -y blender-axi start
-  npx -y blender-axi setup hooks
+commands[10]: (none)=connection status,ping,exec,run=alias of exec,build,render,scene,start,stop,setup
+flags[5]: "--launch (start Blender only when needed)","--json","--full","--help","-v/-V/--version"
+"session env"[2]: BLENDER_AXI_SESSION,BLENDER_AXI_PORT
+examples[6]: npx -y blender-axi ping,npx -y blender-axi exec script.py,"npx -y blender-axi build build.py --save /tmp/model.blend --render front,side --glb /tmp/model.glb","npx -y blender-axi render front,side --out /tmp/renders --res 880x1180",npx -y blender-axi start,npx -y blender-axi setup hooks
 ```
 
 ## Tips

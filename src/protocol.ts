@@ -15,6 +15,14 @@ export interface ProtocolOptions {
 	socketFactory?: () => Socket;
 }
 
+export class AddonTransportError extends Error {
+	constructor(message: string, cause?: unknown) {
+		super(message, { cause });
+	}
+}
+
+export class AddonProtocolError extends Error {}
+
 export function encodeRequest(request: AddonRequest): Buffer {
 	return Buffer.from(JSON.stringify(request), "utf8");
 }
@@ -23,10 +31,41 @@ export function tryParseResponse(buffer: Buffer): AddonResponse | undefined {
 	if (buffer.length === 0) return undefined;
 	try {
 		const value: unknown = JSON.parse(buffer.toString("utf8"));
-		if (!value || typeof value !== "object" || !("status" in value)) {
-			throw new Error("Malformed Blender addon response: missing status");
+		if (!value || typeof value !== "object" || Array.isArray(value)) {
+			throw new AddonProtocolError(
+				"Malformed Blender addon response: expected an object",
+			);
 		}
-		return value as AddonResponse;
+		const response = value as Record<string, unknown>;
+		if (!Object.hasOwn(response, "status")) {
+			throw new AddonProtocolError(
+				"Malformed Blender addon response: missing status",
+			);
+		}
+		if (response.status === "success") {
+			if (!Object.hasOwn(response, "result")) {
+				throw new AddonProtocolError(
+					"Malformed Blender addon response: success response missing result",
+				);
+			}
+			return { status: "success", result: response.result };
+		}
+		if (response.status === "error") {
+			if (!Object.hasOwn(response, "message")) {
+				throw new AddonProtocolError(
+					"Malformed Blender addon response: error response missing message",
+				);
+			}
+			if (typeof response.message !== "string") {
+				throw new AddonProtocolError(
+					"Malformed Blender addon response: error response message must be a string",
+				);
+			}
+			return { status: "error", message: response.message };
+		}
+		throw new AddonProtocolError(
+			`Malformed Blender addon response: unknown status ${JSON.stringify(response.status)}`,
+		);
 	} catch (error) {
 		if (error instanceof SyntaxError) return undefined;
 		throw error;
@@ -56,9 +95,15 @@ export function sendRequest(
 
 		socket.setTimeout(timeoutMs);
 		socket.once("timeout", () =>
-			finish(new Error(`Blender addon timed out after ${timeoutMs}ms`)),
+			finish(
+				new AddonTransportError(
+					`Blender addon timed out after ${timeoutMs}ms`,
+				),
+			),
 		);
-		socket.once("error", (error) => finish(error));
+		socket.once("error", (error) =>
+			finish(new AddonTransportError(error.message, error)),
+		);
 		socket.on("data", (chunk: Buffer) => {
 			response = Buffer.concat([response, chunk]);
 			try {
@@ -75,7 +120,7 @@ export function sendRequest(
 				finish(
 					parsed
 						? undefined
-						: new Error(
+						: new AddonProtocolError(
 								"Blender addon closed the socket before sending complete JSON",
 							),
 					parsed,
