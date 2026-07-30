@@ -1,7 +1,7 @@
 import { DESCRIPTION, TOP_HELP } from "./cli.js";
 
 export const SKILL_DESCRIPTION =
-	"Drive Blender modeling, rendering, and Python scripting through the blender-axi CLI. Use when creating or inspecting 3D scenes, executing bpy scripts with actionable tracebacks, building and exporting models atomically, or producing camera renders from a running stock BlenderMCP addon.";
+	"Drive Blender modeling, rendering, and Python scripting through the blender-axi CLI. Use when creating or inspecting 3D scenes, executing bpy scripts with actionable tracebacks, building and exporting models in one request, or producing camera renders from a running stock BlenderMCP addon.";
 export const SKILL_AUTHOR = "Nohj";
 export const HERMES_TAGS = [
 	"blender",
@@ -44,7 +44,7 @@ If blender-axi output shows a follow-up command starting with \`blender-axi\`, r
 ## When to use
 
 Use blender-axi to inspect a live Blender scene, execute bpy Python with complete failure
-tracebacks, build/save/export/render a model atomically, or produce camera renders for visual
+tracebacks, build/save/export/render a model in one request, or produce camera renders for visual
 verification. It speaks directly to the stock BlenderMCP v1.2 addon's TCP listener and does not
 require an MCP server or patched addon.
 
@@ -56,7 +56,7 @@ require an MCP server or patched addon.
 3. Run \`npx -y blender-axi exec <file|->\` for Python. Failures return the exception, full
    traceback, and stdout produced before failure. Use \`--full\` if long output is truncated.
 4. Run \`npx -y blender-axi build <file> --save <path> --render front,side --glb <path>\` when
-   build, save, export, and renders must remain atomic in one Blender round-trip.
+   build, save, export, and renders must remain a single one-request Blender round-trip.
 5. Run \`npx -y blender-axi render <angles> --out <dir>\` to write camera PNGs for inspection.
 6. Set \`BLENDER_AXI_SESSION\` for isolated session-to-port mapping or \`BLENDER_AXI_PORT\` for
    an explicit listener. Commands fail loudly instead of falling back to another session.
