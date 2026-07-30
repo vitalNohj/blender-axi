@@ -147,25 +147,54 @@ materials:
 		);
 	});
 
-	it("truncates long content with total size and a full escape hatch", () => {
-		// Both truncated fields are tail-critical: a traceback's failure frame and
-		// a progress log's last line are at the end, so the tail is retained and
-		// the marker leads.
-		const long = `${"x".repeat(1600)}TAIL`;
-		const preview = contentPreview(long, false);
-		expect(preview).toEqual({
-			value: `... (truncated, 1604 chars total)\n${long.slice(-1500)}`,
+	it("truncates success stdout from the head and failure fields from the tail", () => {
+		const long = `HEAD${"x".repeat(1600)}TAIL`;
+		const head = contentPreview(long, false, "head");
+		expect(head).toEqual({
+			value: `${long.slice(0, 1500)}\n... (truncated, 1608 chars total)`,
 			truncated: true,
 		});
-		expect(preview.value).toContain("TAIL");
-		expect(contentPreview(long, true)).toEqual({
+		expect(head.value).toContain("HEAD");
+		expect(head.value).not.toContain("TAIL");
+		const tail = contentPreview(long, false, "tail");
+		expect(tail).toEqual({
+			value: `... (truncated, 1608 chars total)\n${long.slice(-1500)}`,
+			truncated: true,
+		});
+		expect(tail.value).not.toContain("HEAD");
+		expect(tail.value).toContain("TAIL");
+		expect(contentPreview(long, true, "head")).toEqual({
 			value: long,
 			truncated: false,
 		});
-		expect(contentPreview("short", false)).toEqual({
+		expect(contentPreview(long, true, "tail")).toEqual({
+			value: long,
+			truncated: false,
+		});
+		expect(contentPreview("short", false, "head")).toEqual({
 			value: "short",
 			truncated: false,
 		});
+
+		const success = executionOutput(
+			{ ok: true, stdout: long, artifacts: [] },
+			false,
+			false,
+		) as string;
+		expect(success).toContain("HEAD");
+		expect(success).not.toContain("TAIL");
+		const failure = executionOutput(
+			{
+				ok: false,
+				error: "failed",
+				stdout_before_failure: long,
+				traceback: long,
+			},
+			false,
+			false,
+		) as string;
+		expect(failure).not.toContain("HEAD");
+		expect(failure).toContain("TAIL");
 	});
 
 	it("strips the internal prelude frame and caret decoration from tracebacks", () => {
@@ -178,10 +207,13 @@ materials:
     ~~~~~~~~~~^^^
   File "/tmp/build.py", line 4, in bevel_edges
     raise RuntimeError("bevel failed")
+  File "<string>", line 1, in <module>
+    raise RuntimeError("nested exec failed")
 RuntimeError: bevel failed
 `;
 		const filtered = filterTraceback(raw);
-		expect(filtered).not.toContain("<string>");
+		expect(filtered).toContain('File "<string>", line 1, in <module>');
+		expect(filtered).toContain('raise RuntimeError("nested exec failed")');
 		expect(filtered).not.toContain("_blender_axi_compile");
 		expect(filtered).not.toMatch(/^[\s~^]+$/m);
 		expect(filtered).toContain('File "/tmp/build.py", line 12, in <module>');
@@ -201,7 +233,7 @@ RuntimeError: bevel failed
 			false,
 			false,
 		) as string;
-		expect(rendered).not.toContain("<string>");
+		expect(rendered).toContain('File "<string>", line 1, in <module>');
 		expect(rendered).not.toContain("_blender_axi_compile");
 		expect(rendered).toContain("RuntimeError: bevel failed");
 	});
@@ -259,7 +291,6 @@ RuntimeError: bevel failed
 			stdout: "|",
 			artifacts: ["/tmp/a.blend", "/tmp/b.glb"],
 		});
-		// --json keeps the full structured envelope, empty artifacts included.
 		expect(
 			JSON.parse(
 				executionOutput(
@@ -268,7 +299,17 @@ RuntimeError: bevel failed
 					false,
 				) as string,
 			),
-		).toEqual({ ok: true, stdout: "", artifacts: [] });
+		).toEqual({ ok: true, stdout: "" });
+
+		expect(
+			JSON.parse(
+				executionOutput(
+					{ ok: true, stdout: "", artifacts: ["/tmp/a.blend"] },
+					true,
+					false,
+				) as string,
+			),
+		).toEqual({ ok: true, stdout: "", artifacts: ["/tmp/a.blend"] });
 	});
 
 	it("lists every registered command in valid TOON top-level help", async () => {

@@ -109,7 +109,8 @@ const SCENE_FIELDS: Record<string, string> = {
 const FULL_SCENE_FIELDS = ["name", "type"];
 const CONTENT_PREVIEW_LIMIT = 1500;
 const PRELUDE_FRAME = /^\s*File "<string>", line \d+/;
-const FRAME_BODY = /^\s+(?!File ")\S/;
+const PRELUDE_COMPILE_CALL =
+	/^\s*exec\(_blender_axi_compile\(.+\), globals\(\), globals\(\)\)$/;
 const CARET_LINE = /^[\s~^]+$/;
 
 type AxiRenderable = string | Record<string, unknown>;
@@ -364,28 +365,33 @@ const setupCommand: Command = (args) => {
 			};
 };
 
-export function contentPreview(value: string, full: boolean) {
+export function contentPreview(
+	value: string,
+	full: boolean,
+	direction: "head" | "tail",
+) {
 	if (full || value.length <= CONTENT_PREVIEW_LIMIT)
 		return { value, truncated: false };
+	const marker = `... (truncated, ${value.length} chars total)`;
 	return {
-		value: `... (truncated, ${value.length} chars total)\n${value.slice(-CONTENT_PREVIEW_LIMIT)}`,
+		value:
+			direction === "tail"
+				? `${marker}\n${value.slice(-CONTENT_PREVIEW_LIMIT)}`
+				: `${value.slice(0, CONTENT_PREVIEW_LIMIT)}\n${marker}`,
 		truncated: true,
 	};
 }
 
-/**
- * Drop the internal prelude execution frame (the addon compiles the prelude as
- * `<string>`, so any such frame is blender-axi's own) and CPython's caret-only
- * decoration lines. User frames and the final exception line are preserved.
- */
 export function filterTraceback(traceback: string): string {
 	const lines = traceback.split("\n");
 	const kept: string[] = [];
 	for (let i = 0; i < lines.length; i++) {
-		if (PRELUDE_FRAME.test(lines[i])) {
-			// A frame owns the indented source lines that follow it, up to the next
-			// frame or the final exception line.
-			while (i + 1 < lines.length && FRAME_BODY.test(lines[i + 1])) i++;
+		if (
+			PRELUDE_FRAME.test(lines[i]) &&
+			i + 1 < lines.length &&
+			PRELUDE_COMPILE_CALL.test(lines[i + 1])
+		) {
+			i++;
 			continue;
 		}
 		if (lines[i].trim() && CARET_LINE.test(lines[i])) continue;
@@ -401,8 +407,12 @@ export function executionOutput(
 ): AxiRenderable {
 	if (!result.ok) {
 		process.exitCode = 1;
-		const stdout = contentPreview(result.stdout_before_failure, full);
-		const traceback = contentPreview(filterTraceback(result.traceback), full);
+		const stdout = contentPreview(result.stdout_before_failure, full, "tail");
+		const traceback = contentPreview(
+			filterTraceback(result.traceback),
+			full,
+			"tail",
+		);
 		const help =
 			stdout.truncated || traceback.truncated
 				? "Re-run the command with `--full` to show complete failure output"
@@ -422,13 +432,15 @@ export function executionOutput(
 			...(help ? [`help[1]: ${help}`] : []),
 		].join("\n");
 	}
-	const stdout = contentPreview(result.stdout, full);
+	const stdout = contentPreview(result.stdout, full, "head");
 	const help = stdout.truncated
 		? "Re-run the command with `--full` to show complete stdout"
 		: undefined;
+	const { artifacts, ...resultWithoutArtifacts } = result;
 	const output = {
-		...result,
+		...resultWithoutArtifacts,
 		stdout: stdout.value,
+		...(artifacts.length && { artifacts }),
 		...(help && { help: [help] }),
 	};
 	if (json) return JSON.stringify(output);

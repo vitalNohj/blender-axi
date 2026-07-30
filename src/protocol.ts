@@ -15,6 +15,14 @@ export interface ProtocolOptions {
 	socketFactory?: () => Socket;
 }
 
+export class AddonTransportError extends Error {
+	constructor(message: string, cause?: unknown) {
+		super(message, { cause });
+	}
+}
+
+export class AddonProtocolError extends Error {}
+
 export function encodeRequest(request: AddonRequest): Buffer {
 	return Buffer.from(JSON.stringify(request), "utf8");
 }
@@ -24,7 +32,9 @@ export function tryParseResponse(buffer: Buffer): AddonResponse | undefined {
 	try {
 		const value: unknown = JSON.parse(buffer.toString("utf8"));
 		if (!value || typeof value !== "object" || !("status" in value)) {
-			throw new Error("Malformed Blender addon response: missing status");
+			throw new AddonProtocolError(
+				"Malformed Blender addon response: missing status",
+			);
 		}
 		return value as AddonResponse;
 	} catch (error) {
@@ -56,9 +66,15 @@ export function sendRequest(
 
 		socket.setTimeout(timeoutMs);
 		socket.once("timeout", () =>
-			finish(new Error(`Blender addon timed out after ${timeoutMs}ms`)),
+			finish(
+				new AddonTransportError(
+					`Blender addon timed out after ${timeoutMs}ms`,
+				),
+			),
 		);
-		socket.once("error", (error) => finish(error));
+		socket.once("error", (error) =>
+			finish(new AddonTransportError(error.message, error)),
+		);
 		socket.on("data", (chunk: Buffer) => {
 			response = Buffer.concat([response, chunk]);
 			try {
@@ -75,7 +91,7 @@ export function sendRequest(
 				finish(
 					parsed
 						? undefined
-						: new Error(
+						: new AddonProtocolError(
 								"Blender addon closed the socket before sending complete JSON",
 							),
 					parsed,

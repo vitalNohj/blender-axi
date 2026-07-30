@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { AxiError } from "axi-sdk-js";
-import { sendRequest } from "./protocol.js";
+import { AddonTransportError, sendRequest } from "./protocol.js";
 import {
 	generatePrelude,
 	parseExecutionOutput,
@@ -15,7 +15,7 @@ export interface SessionContext {
 	stateDir: string;
 }
 
-class DeadPortError extends AxiError {
+export class DeadPortError extends AxiError {
 	constructor(
 		readonly session: string,
 		readonly port: number,
@@ -41,7 +41,9 @@ export async function requestAddon(
 	try {
 		response = await sendRequest(context.port, { type, params });
 	} catch (error) {
-		throw new DeadPortError(context.session, context.port, error);
+		if (error instanceof AddonTransportError)
+			throw new DeadPortError(context.session, context.port, error);
+		throw error;
 	}
 	if (response.status === "error") throw new Error(response.message);
 	return response.result;

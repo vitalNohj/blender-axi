@@ -7,7 +7,11 @@ import {
 } from "node:fs";
 import { spawn } from "node:child_process";
 import { join } from "node:path";
-import { requestAddon, type SessionContext } from "./client.js";
+import {
+	DeadPortError,
+	requestAddon,
+	type SessionContext,
+} from "./client.js";
 import { resolveSessionPidFile } from "./sessions.js";
 
 const DEFAULT_BLENDER = "/Applications/Blender.app/Contents/MacOS/Blender";
@@ -42,7 +46,7 @@ export async function ensureBlender(
 	try {
 		await requestAddon(context, "get_scene_info");
 	} catch (error) {
-		if (!launch) throw error;
+		if (!launch || !(error instanceof DeadPortError)) throw error;
 		await launchBlender(context);
 	}
 }

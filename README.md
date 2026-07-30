@@ -217,7 +217,7 @@ The skill's commands are written as `npx -y blender-axi ...`, which requires the
 | Wrong port for a named session | Run `blender-axi ping` to see the resolved port, then set the addon's **Port** to match, or pin it with `BLENDER_AXI_PORT`. |
 | `Cannot render: scene has no mesh objects` | `render` needs at least one mesh. Build geometry first. |
 | `Cannot export glTF: scene has no objects` | `--glb` needs something to export. |
-| Output starts with `... (truncated, N chars total)` | Intentional context guard. The retained tail follows the marker; re-run with `--full` for everything. |
+| Failure output starts with `... (truncated, N chars total)` | Intentional context guard. Tracebacks and pre-failure stdout retain their tail; successful stdout retains its head and ends with the marker. Re-run with `--full` for everything. |
 | `blender-axi: command not found` | `npm link` wasn't run, or use `node dist/bin/blender-axi.js` directly. |
 | A script called `bpy.ops.wm.read_homefile()` and later steps behaved oddly | Handled: `blender-axi` re-resolves and normalizes Blender's context after a scene reset so save, export, and render act on the replacement scene. |
 | `stop` reports `not-owned` | This session has no readable PID file, so no signal is sent. Otherwise `stop` signals the recorded PID without verifying process identity. |
@@ -233,7 +233,7 @@ npm run dev -- ping  # run from TypeScript source without building
 
 `skills/blender-axi/SKILL.md` is generated. Edit `src/skill.ts` and re-run `npm run build:skill`; `npm test` fails if the committed file is stale.
 
-Run `npm test` with `BLENDER_AXI_PORT` and `BLENDER_AXI_SESSION` unset and a reachable addon listener on the default port. The render usage-error test connects before validating angles.
+`npm test` is environment-independent and does not require a reachable Blender addon listener.
 
 Live acceptance against a real Blender requires a GUI instance with the addon listener running, and should write artifacts outside the source tree.
 
