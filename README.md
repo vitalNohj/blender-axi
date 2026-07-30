@@ -219,7 +219,6 @@ The skill's commands are written as `npx -y blender-axi ...`, which requires the
 | Wrong port for a named session | Run `blender-axi ping` to see the resolved port, then set the addon's **Port** to match, or pin it with `BLENDER_AXI_PORT`. |
 | `Cannot render: scene has no mesh objects` | `render` needs at least one mesh. Build geometry first. |
 | `Cannot export glTF: scene has no objects` | `--glb` needs something to export. |
-| A `--glb` export looks flatter than the renders | Fixed: `--glb` exports evaluated geometry, so modifier results are in the GLB. Re-export with a current `blender-axi`; GLBs written by older versions carry the raw, unmodified mesh. |
 | Failure output starts with `... (truncated, N chars total)` | Intentional context guard. Tracebacks and pre-failure stdout retain their tail; successful stdout retains its head and ends with the marker. Re-run with `--full` for everything. |
 | `blender-axi: command not found` | `npm link` wasn't run, or use `node dist/bin/blender-axi.js` directly. |
 | A script called `bpy.ops.wm.read_homefile()` and later steps behaved oddly | Handled: `blender-axi` re-resolves and normalizes Blender's context after a scene reset so save, export, and render act on the replacement scene. |
