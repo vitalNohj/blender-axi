@@ -236,6 +236,17 @@ RuntimeError: bevel failed
 		expect(rendered).toContain('File "<string>", line 1, in <module>');
 		expect(rendered).not.toContain("_blender_axi_compile");
 		expect(rendered).toContain("RuntimeError: bevel failed");
+
+		const withoutSourceLine = raw.replace(
+			'    exec(_blender_axi_compile(user, "/tmp/user_build.py"), globals(), globals())\n',
+			"",
+		);
+		expect(filterTraceback(withoutSourceLine)).not.toContain(
+			'File "<string>", line 56, in <module>',
+		);
+		expect(filterTraceback(withoutSourceLine)).toContain(
+			'File "<string>", line 1, in <module>',
+		);
 	});
 
 	it("defaults scene output to aggregates and opts into object rows", () => {

@@ -109,7 +109,7 @@ const SCENE_FIELDS: Record<string, string> = {
 };
 const FULL_SCENE_FIELDS = ["name", "type"];
 const CONTENT_PREVIEW_LIMIT = 1500;
-const PRELUDE_FRAME = /^\s*File "<string>", line \d+/;
+const PRELUDE_FRAME = /^\s*File "<string>", line 56, in <module>$/;
 const PRELUDE_COMPILE_CALL =
 	/^\s*exec\(_blender_axi_compile\(.+\), globals\(\), globals\(\)\)$/;
 const CARET_LINE = /^[\s~^]+$/;
@@ -388,12 +388,8 @@ export function filterTraceback(traceback: string): string {
 	const lines = traceback.split("\n");
 	const kept: string[] = [];
 	for (let i = 0; i < lines.length; i++) {
-		if (
-			PRELUDE_FRAME.test(lines[i]) &&
-			i + 1 < lines.length &&
-			PRELUDE_COMPILE_CALL.test(lines[i + 1])
-		) {
-			i++;
+		if (PRELUDE_FRAME.test(lines[i])) {
+			if (i + 1 < lines.length && PRELUDE_COMPILE_CALL.test(lines[i + 1])) i++;
 			continue;
 		}
 		if (lines[i].trim() && CARET_LINE.test(lines[i])) continue;

@@ -36,34 +36,35 @@ export function tryParseResponse(buffer: Buffer): AddonResponse | undefined {
 				"Malformed Blender addon response: expected an object",
 			);
 		}
-		if (!Object.hasOwn(value, "status")) {
+		const response = value as Record<string, unknown>;
+		if (!Object.hasOwn(response, "status")) {
 			throw new AddonProtocolError(
 				"Malformed Blender addon response: missing status",
 			);
 		}
-		if (value.status === "success") {
-			if (!Object.hasOwn(value, "result")) {
+		if (response.status === "success") {
+			if (!Object.hasOwn(response, "result")) {
 				throw new AddonProtocolError(
 					"Malformed Blender addon response: success response missing result",
 				);
 			}
-			return { status: "success", result: value.result };
+			return { status: "success", result: response.result };
 		}
-		if (value.status === "error") {
-			if (!Object.hasOwn(value, "message")) {
+		if (response.status === "error") {
+			if (!Object.hasOwn(response, "message")) {
 				throw new AddonProtocolError(
 					"Malformed Blender addon response: error response missing message",
 				);
 			}
-			if (typeof value.message !== "string") {
+			if (typeof response.message !== "string") {
 				throw new AddonProtocolError(
 					"Malformed Blender addon response: error response message must be a string",
 				);
 			}
-			return { status: "error", message: value.message };
+			return { status: "error", message: response.message };
 		}
 		throw new AddonProtocolError(
-			`Malformed Blender addon response: unknown status ${JSON.stringify(value.status)}`,
+			`Malformed Blender addon response: unknown status ${JSON.stringify(response.status)}`,
 		);
 	} catch (error) {
 		if (error instanceof SyntaxError) return undefined;
