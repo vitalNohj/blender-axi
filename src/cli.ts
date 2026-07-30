@@ -5,6 +5,7 @@ import { AxiError, installSessionStartHooks, runAxiCli } from "axi-sdk-js";
 import { encode } from "@toon-format/toon";
 import {
 	defaultRenderDirectory,
+	DeadPortError,
 	executeSource,
 	readPythonSource,
 	requestAddon,
@@ -308,7 +309,8 @@ const startCommand: SessionCommand = async (args, context) => {
 			},
 			parsed.flags.has("--json"),
 		);
-	} catch {
+	} catch (error) {
+		if (!(error instanceof DeadPortError)) throw error;
 		const pid = await launchBlender(context);
 		return jsonOr(
 			{

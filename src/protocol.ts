@@ -31,12 +31,40 @@ export function tryParseResponse(buffer: Buffer): AddonResponse | undefined {
 	if (buffer.length === 0) return undefined;
 	try {
 		const value: unknown = JSON.parse(buffer.toString("utf8"));
-		if (!value || typeof value !== "object" || !("status" in value)) {
+		if (!value || typeof value !== "object" || Array.isArray(value)) {
+			throw new AddonProtocolError(
+				"Malformed Blender addon response: expected an object",
+			);
+		}
+		if (!Object.hasOwn(value, "status")) {
 			throw new AddonProtocolError(
 				"Malformed Blender addon response: missing status",
 			);
 		}
-		return value as AddonResponse;
+		if (value.status === "success") {
+			if (!Object.hasOwn(value, "result")) {
+				throw new AddonProtocolError(
+					"Malformed Blender addon response: success response missing result",
+				);
+			}
+			return { status: "success", result: value.result };
+		}
+		if (value.status === "error") {
+			if (!Object.hasOwn(value, "message")) {
+				throw new AddonProtocolError(
+					"Malformed Blender addon response: error response missing message",
+				);
+			}
+			if (typeof value.message !== "string") {
+				throw new AddonProtocolError(
+					"Malformed Blender addon response: error response message must be a string",
+				);
+			}
+			return { status: "error", message: value.message };
+		}
+		throw new AddonProtocolError(
+			`Malformed Blender addon response: unknown status ${JSON.stringify(value.status)}`,
+		);
 	} catch (error) {
 		if (error instanceof SyntaxError) return undefined;
 		throw error;
