@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { AxiError, installSessionStartHooks, runAxiCli } from "axi-sdk-js";
+import { encode } from "@toon-format/toon";
 import {
 	defaultRenderDirectory,
 	executeSource,
@@ -21,19 +22,36 @@ export const DESCRIPTION =
 	"Drive Blender through its stock BlenderMCP TCP addon with isolated sessions, one-request builds, tracebacks, and camera renders.";
 
 export const TOP_HELP = `usage: blender-axi [command] [args] [flags]
-commands[8]:
-  (none)=connection status, ping, exec, build, render, scene, start, stop, setup
-flags[5]:
-  --launch (start Blender only when needed), --json, --full, --help, -v/-V/--version
-session env[2]:
-  BLENDER_AXI_SESSION, BLENDER_AXI_PORT
-examples:
-  blender-axi ping
-  blender-axi exec script.py
-  blender-axi build build.py --save /tmp/model.blend --render front,side --glb /tmp/model.glb
-  blender-axi render front,side --out /tmp/renders --res 880x1180
-  blender-axi start
-  blender-axi setup hooks
+${encode({
+	commands: [
+		"(none)=connection status",
+		"ping",
+		"exec",
+		"run=alias of exec",
+		"build",
+		"render",
+		"scene",
+		"start",
+		"stop",
+		"setup",
+	],
+	flags: [
+		"--launch (start Blender only when needed)",
+		"--json",
+		"--full",
+		"--help",
+		"-v/-V/--version",
+	],
+	"session env": ["BLENDER_AXI_SESSION", "BLENDER_AXI_PORT"],
+	examples: [
+		"blender-axi ping",
+		"blender-axi exec script.py",
+		"blender-axi build build.py --save /tmp/model.blend --render front,side --glb /tmp/model.glb",
+		"blender-axi render front,side --out /tmp/renders --res 880x1180",
+		"blender-axi start",
+		"blender-axi setup hooks",
+	],
+})}
 `;
 
 export const COMMAND_HELP: Record<string, string> = {
@@ -44,6 +62,7 @@ examples[2]: blender-axi ping, blender-axi ping --launch
 `,
 	exec: `usage: blender-axi exec <file|-> [--launch] [--json] [--full]
 Execute Python with guaranteed traceback and pre-failure stdout capture.
+aliases[1]: run
 flags[3]: --launch (default false), --json (default false), --full (do not truncate output)
 examples[2]: blender-axi exec script.py, cat script.py | blender-axi exec -
 `,
@@ -59,8 +78,8 @@ examples[2]: blender-axi render front,side, blender-axi render tq --out /tmp/ren
 `,
 	scene: `usage: blender-axi scene [--fields <name,type,visible,selected,vertices>] [--full] [--launch] [--json]
 Show aggregate object, mesh, triangle, material, and collection counts.
-flags[4]: --fields <fields> (include object detail with selected columns), --full (include all objects with name,type), --launch, --json
-examples[2]: blender-axi scene, blender-axi scene --fields name,type,vertices
+flags[4]: --fields <fields> (rows of name plus the requested columns), --full (rows of every object with the complete name,type detail schema; wins over --fields), --launch, --json
+examples[3]: blender-axi scene, blender-axi scene --fields vertices, blender-axi scene --full
 `,
 	start: `usage: blender-axi start [--json]
 Launch a Blender GUI owned by this session and wait for its addon port.
@@ -87,7 +106,11 @@ const SCENE_FIELDS: Record<string, string> = {
 	selected: "o.select_get()",
 	vertices: "len(o.data.vertices) if o.type == 'MESH' else None",
 };
+const FULL_SCENE_FIELDS = ["name", "type"];
 const CONTENT_PREVIEW_LIMIT = 1500;
+const PRELUDE_FRAME = /^\s*File "<string>", line \d+/;
+const FRAME_BODY = /^\s+(?!File ")\S/;
+const CARET_LINE = /^[\s~^]+$/;
 
 type AxiRenderable = string | Record<string, unknown>;
 type SessionCommand = (
@@ -200,27 +223,37 @@ const renderCommand: SessionCommand = async (args, context) => {
 		1,
 		"blender-axi render <angles>",
 	);
+	const renderAngles = parseAngles(angleValue);
+	const resolution = parseResolution(flagString(parsed, "--res"));
 	await connected(context, parsed.flags.has("--launch"));
 	return executionOutput(
 		await executeSource(context, "", {
 			filename: "<blender-axi-render>",
-			renderAngles: parseAngles(angleValue),
+			renderAngles,
 			renderOutDir: flagString(parsed, "--out") ?? process.cwd(),
-			resolution: parseResolution(flagString(parsed, "--res")),
+			resolution,
 		}),
 		parsed.flags.has("--json"),
 		parsed.flags.has("--full"),
 	);
 };
 
+/**
+ * `--full` always returns the complete full-detail schema, so it wins over
+ * `--fields`. `--fields` alone returns `name` plus the requested fields, so
+ * every row stays identifiable even when the caller omits `name`.
+ */
 export function sceneSource(fields: string[], full: boolean): string {
-	const objectFields = fields
+	let columns = fields;
+	if (full) columns = FULL_SCENE_FIELDS;
+	else if (fields.length && !fields.includes("name"))
+		columns = ["name", ...fields];
+	const objectFields = columns
 		.map((field) => `${JSON.stringify(field)}: ${SCENE_FIELDS[field]}`)
 		.join(", ");
-	const details = full || fields.length;
 	return `_summary = _blender_axi_scene_summary()
 _summary["name"] = C.scene.name
-${details ? `_summary["items"] = [{${objectFields || '"name": o.name, "type": o.type'}} for o in C.scene.objects]` : `_summary["help"] = [f"Run \`blender-axi scene --full\` to show all {_summary['objects']} objects"]`}
+${columns.length ? `_summary["items"] = [{${objectFields}} for o in C.scene.objects]` : `_summary["help"] = [f"Run \`blender-axi scene --full\` to show all {_summary['objects']} objects"]`}
 print(json.dumps(_summary))`;
 }
 
@@ -335,9 +368,30 @@ export function contentPreview(value: string, full: boolean) {
 	if (full || value.length <= CONTENT_PREVIEW_LIMIT)
 		return { value, truncated: false };
 	return {
-		value: `${value.slice(0, CONTENT_PREVIEW_LIMIT)}\n... (truncated, ${value.length} chars total)`,
+		value: `... (truncated, ${value.length} chars total)\n${value.slice(-CONTENT_PREVIEW_LIMIT)}`,
 		truncated: true,
 	};
+}
+
+/**
+ * Drop the internal prelude execution frame (the addon compiles the prelude as
+ * `<string>`, so any such frame is blender-axi's own) and CPython's caret-only
+ * decoration lines. User frames and the final exception line are preserved.
+ */
+export function filterTraceback(traceback: string): string {
+	const lines = traceback.split("\n");
+	const kept: string[] = [];
+	for (let i = 0; i < lines.length; i++) {
+		if (PRELUDE_FRAME.test(lines[i])) {
+			// A frame owns the indented source lines that follow it, up to the next
+			// frame or the final exception line.
+			while (i + 1 < lines.length && FRAME_BODY.test(lines[i + 1])) i++;
+			continue;
+		}
+		if (lines[i].trim() && CARET_LINE.test(lines[i])) continue;
+		kept.push(lines[i]);
+	}
+	return kept.join("\n");
 }
 
 export function executionOutput(
@@ -348,7 +402,7 @@ export function executionOutput(
 	if (!result.ok) {
 		process.exitCode = 1;
 		const stdout = contentPreview(result.stdout_before_failure, full);
-		const traceback = contentPreview(result.traceback, full);
+		const traceback = contentPreview(filterTraceback(result.traceback), full);
 		const help =
 			stdout.truncated || traceback.truncated
 				? "Re-run the command with `--full` to show complete failure output"
@@ -381,15 +435,10 @@ export function executionOutput(
 	return [
 		"ok: true",
 		multilineField("stdout", stdout.value),
-		`artifacts[${result.artifacts.length}]:${result.artifacts.length ? `\n${result.artifacts.map((path) => `  - ${JSON.stringify(path)}`).join("\n")}` : " []"}`,
-		...(result.scene
-			? [
-					`scene:`,
-					...Object.entries(result.scene).map(
-						([key, value]) => `  ${key}: ${value}`,
-					),
-				]
+		...(result.artifacts.length
+			? [encode({ artifacts: result.artifacts })]
 			: []),
+		...(result.scene ? [encode({ scene: result.scene })] : []),
 		...(help ? [`help[1]: ${help}`] : []),
 	].join("\n");
 }

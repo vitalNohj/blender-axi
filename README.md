@@ -14,7 +14,7 @@ Beyond the resident cost, `blender-axi` is shaped so each invocation returns les
 - **Aggregates before detail.** `scene` returns counts first, so the common "how big is this scene" question costs a handful of lines instead of a full object dump. Object rows are opt-in via `--fields` / `--full`.
 - **One round-trip for a whole build.** `build` runs your script, saves, exports glTF, and renders camera angles in a single socket request, and returns the resulting scene aggregate — instead of five tool calls and five responses.
 - **Failures arrive actionable.** `exec` wraps your script so a crash returns the exception, its Python traceback, and the stdout printed *before* the failure. No follow-up call to ask "what actually broke".
-- **Long output is truncated with an escape hatch.** Execution stdout and traceback fields over 1500 characters are cut with their total size and a `--full` hint, so one chatty script can't flood the context.
+- **Long output is truncated with an escape hatch.** Execution stdout and traceback fields over 1500 characters are cut with their total size and a `--full` hint, so one chatty script can't flood the context. Failure fields keep the **tail** — where the failing frame and the last progress line are — behind a leading truncation marker.
 
 ## Prerequisites
 
@@ -94,7 +94,9 @@ items[3]{name,type,vertices}:
   Sun,LIGHT,null
 ```
 
-`--full` returns every object with `name,type`.
+Rows always carry `name`, even when you don't ask for it, so every row stays joinable to an object.
+
+`--full` returns every object with the complete `name,type` detail schema. It wins over `--fields`, so `--full --fields vertices` returns the same rows as `--full` alone.
 
 ### Run Python
 
@@ -102,6 +104,10 @@ items[3]{name,type,vertices}:
 blender-axi exec script.py
 cat script.py | blender-axi exec -
 ```
+
+`run` is an alias of `exec` and accepts the same arguments and flags.
+
+Tracebacks report your frames and the final exception line. blender-axi's own execution frame and CPython's caret decoration lines are removed, so the traceback points only at code you can fix.
 
 Your script runs with `bpy`, `D` (`bpy.data`), `C` (`bpy.context`), and `_sc` (the active scene) already resolved. A failure returns everything needed to fix it in one response:
 
@@ -130,11 +136,7 @@ One socket round-trip runs save → glTF export → render sequentially, returni
 ok: true
 stdout: |
   built hull
-artifacts[4]:
-  - "/tmp/ship.blend"
-  - "/tmp/ship.glb"
-  - "/tmp/render-front.png"
-  - "/tmp/render-side.png"
+artifacts[4]: /tmp/ship.blend,/tmp/ship.glb,/tmp/render-front.png,/tmp/render-side.png
 scene:
   objects: 4
   meshes: 2
@@ -157,7 +159,7 @@ Angles are a comma-separated subset of `front`, `side`, `back`, `tq` (three-quar
 
 Output is [TOON](https://github.com/toon-format/toon) — compact, structured, human- and agent-readable. Add `--json` for a JSON envelope.
 
-On success, CLI-managed `--save`, `--glb`, and `--render` actions that completed are reported in the `artifacts` list. Renders are named `render-<angle>.png`. Build renders are written beside `--save`, or to the current directory when no `--save` path is given; standalone `render` defaults to the current directory. On failure, the response contains `error`, `traceback`, and `stdout_before_failure` without an `artifacts` list, so files written before the failure are not reported. Arbitrary Python run by `exec` or `build` may also write files that the CLI does not track. Paths you pass are used as given, so prefer absolute paths outside your source tree — `/tmp` is a good default — to keep generated `.blend`, `.glb`, and `.png` files out of the repository.
+On success, CLI-managed `--save`, `--glb`, and `--render` actions that completed are reported in the `artifacts` list. The list is omitted when nothing was produced, so `exec` — which never tracks artifacts — doesn't report an empty one. Renders are named `render-<angle>.png`. Build renders are written beside `--save`, or to the current directory when no `--save` path is given; standalone `render` defaults to the current directory. On failure, the response contains `error`, `traceback`, and `stdout_before_failure` without an `artifacts` list, so files written before the failure are not reported. Arbitrary Python run by `exec` or `build` may also write files that the CLI does not track. Paths you pass are used as given, so prefer absolute paths outside your source tree — `/tmp` is a good default — to keep generated `.blend`, `.glb`, and `.png` files out of the repository.
 
 Exit codes: `0` success or idempotent no-op, `1` execution or connection failure, `2` invalid usage.
 
@@ -211,11 +213,11 @@ The skill's commands are written as `npx -y blender-axi ...`, which requires the
 
 | Symptom | Cause and fix |
 | --- | --- |
-| `No Blender addon answered for session "..." on port N` | Blender isn't running, the addon listener isn't started, or the addon's **Port** doesn't match. Click **Connect to Claude** in the BlenderMCP sidebar, or add `--launch`. |
+| `No Blender addon answered for session "..." on port N` | Blender isn't running, the addon listener isn't started, or the addon's **Port** doesn't match. The error suggests `blender-axi start` and `--launch`; you can also click **Connect to Claude** in the BlenderMCP sidebar. |
 | Wrong port for a named session | Run `blender-axi ping` to see the resolved port, then set the addon's **Port** to match, or pin it with `BLENDER_AXI_PORT`. |
 | `Cannot render: scene has no mesh objects` | `render` needs at least one mesh. Build geometry first. |
 | `Cannot export glTF: scene has no objects` | `--glb` needs something to export. |
-| Output ends in `... (truncated, N chars total)` | Intentional context guard. Re-run with `--full`. |
+| Output starts with `... (truncated, N chars total)` | Intentional context guard. The retained tail follows the marker; re-run with `--full` for everything. |
 | `blender-axi: command not found` | `npm link` wasn't run, or use `node dist/bin/blender-axi.js` directly. |
 | A script called `bpy.ops.wm.read_homefile()` and later steps behaved oddly | Handled: `blender-axi` re-resolves and normalizes Blender's context after a scene reset so save, export, and render act on the replacement scene. |
 | `stop` reports `not-owned` | This session has no readable PID file, so no signal is sent. Otherwise `stop` signals the recorded PID without verifying process identity. |

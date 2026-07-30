@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { AxiError } from "axi-sdk-js";
 import { sendRequest } from "./protocol.js";
 import {
 	generatePrelude,
@@ -14,15 +15,19 @@ export interface SessionContext {
 	stateDir: string;
 }
 
-class DeadPortError extends Error {
+class DeadPortError extends AxiError {
 	constructor(
 		readonly session: string,
 		readonly port: number,
-		cause?: unknown,
+		readonly cause?: unknown,
 	) {
 		super(
 			`No Blender addon answered for session "${session}" on port ${port}`,
-			{ cause },
+			"BLENDER_UNREACHABLE",
+			[
+				"Run `blender-axi start` to launch Blender for this session",
+				"Or re-run the command with `--launch`",
+			],
 		);
 	}
 }
