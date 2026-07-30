@@ -48,7 +48,7 @@ Run `blender-axi` with no arguments for a content-first status view — it repor
 ```
 $ blender-axi
 bin: ~/blender-axi/dist/bin/blender-axi.js
-description: "Drive Blender through its stock BlenderMCP TCP addon with isolated sessions, atomic builds, tracebacks, and camera renders."
+description: "Drive Blender through its stock BlenderMCP TCP addon with isolated sessions, one-request builds, tracebacks, and camera renders."
 ok: true
 session: default
 port: 9876
