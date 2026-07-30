@@ -147,7 +147,7 @@ scene:
 
 The supported build action flags are `--save`, `--render`, and `--glb`. Each is independent — use `--save` alone to just persist, or `--glb` alone to just export. Build renders are written beside `--save`, or to the current directory when no `--save` path is given.
 
-`--glb` exports evaluated geometry, so modifiers such as bevels are baked into the exported mesh and the GLB triangle count matches the `scene` aggregate and the renders. Your source scene is not modified: modifier stacks stay intact and editable, and the saved `.blend` keeps them. Shape keys on objects that carry no modifiers still export as morph targets; as the glTF exporter documents, shape keys are not preserved on objects whose modifiers are baked.
+`--glb` evaluates mesh modifiers, so results such as bevels are baked into exported geometry instead of exporting the raw mesh. Your source scene is not modified: modifier stacks stay intact and editable, and the saved `.blend` keeps them. Shape keys on objects that carry no modifiers still export as morph targets; as the glTF exporter documents, shape keys are not preserved on objects whose modifiers are baked.
 
 ### Render for visual verification
 
