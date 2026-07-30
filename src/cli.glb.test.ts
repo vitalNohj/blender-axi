@@ -57,7 +57,10 @@ async function run(argv: string[]): Promise<string> {
 }
 
 function buildScript(): string {
-	const file = join(mkdtempSync(join(tmpdir(), "blender-axi-glb-")), "build.py");
+	const file = join(
+		mkdtempSync(join(tmpdir(), "blender-axi-glb-")),
+		"build.py",
+	);
 	writeFileSync(file, "print('built')\n");
 	return file;
 }
@@ -66,7 +69,12 @@ describe("glb export preserves evaluated geometry", () => {
 	it("exports the evaluated mesh for `build --glb`", async () => {
 		const code = stubListener(["/tmp/model.glb"]);
 
-		const output = await run(["build", buildScript(), "--glb", "/tmp/model.glb"]);
+		const output = await run([
+			"build",
+			buildScript(),
+			"--glb",
+			"/tmp/model.glb",
+		]);
 
 		expect(code()).toContain(
 			"bpy.ops.export_scene.gltf(filepath=\"/tmp/model.glb\", export_format='GLB', export_apply=True)",
