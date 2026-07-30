@@ -65,6 +65,12 @@ _blender_axi_normalize_scene()
 `;
 }
 
+/**
+ * `export_apply=True` makes the exporter read each object's evaluated mesh, so
+ * the GLB matches the depsgraph result the scene summary and renders report.
+ * The exporter evaluates into temporary data and never writes back, so source
+ * modifiers stay in the stack and editable.
+ */
 function glbCode(path: string): string {
 	return `
 _exportable = next((o for o in C.scene.objects if o.type == 'MESH'), next(iter(C.scene.objects), None))
@@ -73,7 +79,7 @@ if _exportable is None:
 bpy.ops.object.select_all(action='DESELECT')
 _exportable.select_set(True)
 C.view_layer.objects.active = _exportable
-bpy.ops.export_scene.gltf(filepath=${JSON.stringify(path)}, export_format='GLB')
+bpy.ops.export_scene.gltf(filepath=${JSON.stringify(path)}, export_format='GLB', export_apply=True)
 _blender_axi_artifacts.append(${JSON.stringify(path)})`;
 }
 

@@ -147,6 +147,8 @@ scene:
 
 The supported build action flags are `--save`, `--render`, and `--glb`. Each is independent — use `--save` alone to just persist, or `--glb` alone to just export. Build renders are written beside `--save`, or to the current directory when no `--save` path is given.
 
+`--glb` exports evaluated geometry, so modifiers such as bevels are baked into the exported mesh and the GLB triangle count matches the `scene` aggregate and the renders. Your source scene is not modified: modifier stacks stay intact and editable, and the saved `.blend` keeps them. Shape keys on objects that carry no modifiers still export as morph targets; as the glTF exporter documents, shape keys are not preserved on objects whose modifiers are baked.
+
 ### Render for visual verification
 
 ```sh
@@ -217,6 +219,7 @@ The skill's commands are written as `npx -y blender-axi ...`, which requires the
 | Wrong port for a named session | Run `blender-axi ping` to see the resolved port, then set the addon's **Port** to match, or pin it with `BLENDER_AXI_PORT`. |
 | `Cannot render: scene has no mesh objects` | `render` needs at least one mesh. Build geometry first. |
 | `Cannot export glTF: scene has no objects` | `--glb` needs something to export. |
+| A `--glb` export looks flatter than the renders | Fixed: `--glb` exports evaluated geometry, so modifier results are in the GLB. Re-export with a current `blender-axi`; GLBs written by older versions carry the raw, unmodified mesh. |
 | Failure output starts with `... (truncated, N chars total)` | Intentional context guard. Tracebacks and pre-failure stdout retain their tail; successful stdout retains its head and ends with the marker. Re-run with `--full` for everything. |
 | `blender-axi: command not found` | `npm link` wasn't run, or use `node dist/bin/blender-axi.js` directly. |
 | A script called `bpy.ops.wm.read_homefile()` and later steps behaved oddly | Handled: `blender-axi` re-resolves and normalizes Blender's context after a scene reset so save, export, and render act on the replacement scene. |

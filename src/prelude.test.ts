@@ -60,6 +60,16 @@ describe("prelude", () => {
 		expect(code).toContain("if not _mesh_objects:");
 	});
 
+	it("exports evaluated geometry without applying modifiers to the source", () => {
+		const code = generatePrelude("", { glb: "/tmp/a.glb" });
+		expect(code).toContain(
+			"bpy.ops.export_scene.gltf(filepath=\"/tmp/a.glb\", export_format='GLB', export_apply=True)",
+		);
+		expect(code).not.toContain("object.modifier_apply");
+		expect(code).not.toContain("modifiers.clear()");
+		expect(code).not.toContain("modifiers.remove");
+	});
+
 	it("orders save before glb export and rendering", () => {
 		const code = generatePrelude("", {
 			save: "/tmp/a.blend",
