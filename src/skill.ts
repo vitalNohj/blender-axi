@@ -76,6 +76,7 @@ ${npxHelp().trimEnd()}
   means invalid usage.
 - \`start\` and \`--launch\` may launch Blender; \`stop\` only stops the process recorded as owned
   by the same session. Ordinary commands never opt into lifecycle changes implicitly.
+- See the README's build/export section for \`--glb\` modifier and shape-key semantics.
 - Keep artifacts outside reference workspaces when validating builds, typically under \`/tmp\`.
 `;
 }
