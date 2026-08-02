@@ -67,7 +67,7 @@ npm run benchmark -- preflight execute \
   --addon "$BLENDER_MCP_ADDON_PATH"
 ```
 
-It refuses unless there are exactly four P1/P5 cells, all pins and fixture hashes match, provider credentials and exact model configuration exist, ambient integrations are disabled, limits and frozen pricing are non-null, Unity target is selected, external port 9876 is closed, and the addon hash matches. Do not run this command in CI or while building benchmark machinery.
+It refuses unless there are exactly four P1/P5 cells, the fixture manifest and frozen Blender/addon hashes match, provider credentials and exact model configuration exist, the adapter declares fresh-session and ambient-integration-disable arguments, limits and frozen pricing are non-null, a Unity target is selected, and external port 9876 is closed. Do not run this command in CI or while building benchmark machinery.
 
 ## Selected execution and resume
 
