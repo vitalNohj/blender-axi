@@ -1,9 +1,18 @@
-import { mkdir, rename, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import type { AnalysisReport, Interval, MetricSummary } from "./analysis.js";
 import type { AttemptRecord } from "./types.js";
 import { analyze } from "./analysis.js";
-import { readJson, readJsonl, writeJsonAtomic } from "./util.js";
+import { appendJsonl, readJson, readJsonl, writeJsonAtomic } from "./util.js";
+
+interface VisualScoreRecord {
+	schema_version: "1.0.0";
+	run_id: string;
+	mean: number;
+	rater_count: number;
+	scorer_agreement: number;
+	visual_scores_path: string;
+}
 
 function number(value: number | null, digits = 3): string {
 	return value === null ? "NA" : value.toFixed(digits);
@@ -118,37 +127,36 @@ export function htmlReport(markdown: string): string {
 export async function applyVisualScores(
 	resultsPath: string,
 	runScores: Record<string, { mean: number; rater_count: number }>,
+	scorerAgreement: number,
 ): Promise<void> {
 	const records = await readJsonl<AttemptRecord>(resultsPath);
 	const known = new Set(records.map((record) => record.run_id));
 	for (const runId of Object.keys(runScores))
 		if (!known.has(runId))
 			throw new Error(`Visual score references unknown run ${runId}`);
-	const updated = records.map((record) => {
-		const score = runScores[record.run_id];
-		return score
-			? {
-					...record,
-					scores: {
-						...record.scores,
-						visual_blinded_0_100: score.mean,
-						visual_rater_count: score.rater_count,
-					},
-					oracles: {
-						...record.oracles,
-						visual_scores_path: "scoring/aggregate.json",
-					},
-				}
-			: record;
-	});
-	const temporary = `${resultsPath}.${process.pid}.tmp`;
-	await writeFile(
-		temporary,
-		updated.map((record) => JSON.stringify(record)).join("\n") +
-			(updated.length ? "\n" : ""),
-		{ mode: 0o600 },
-	);
-	await rename(temporary, resultsPath);
+	const scorePath = join(dirname(resultsPath), "visual-scores.jsonl");
+	const existing = await readJsonl<VisualScoreRecord>(scorePath);
+	const alreadyScored = new Map(existing.map((record) => [record.run_id, record]));
+	for (const [runId, score] of Object.entries(runScores)) {
+		const prior = alreadyScored.get(runId);
+		if (prior) {
+			if (
+				prior.mean !== score.mean ||
+				prior.rater_count !== score.rater_count ||
+				prior.scorer_agreement !== scorerAgreement
+			)
+				throw new Error(`Conflicting visual score already exists for run ${runId}`);
+			continue;
+		}
+		await appendJsonl(scorePath, {
+			schema_version: "1.0.0",
+			run_id: runId,
+			mean: score.mean,
+			rater_count: score.rater_count,
+			scorer_agreement: scorerAgreement,
+			visual_scores_path: "scoring/aggregate.json",
+		});
+	}
 }
 
 export async function generateReports(
@@ -156,7 +164,29 @@ export async function generateReports(
 	resultsPath: string,
 	outputRoot: string,
 ): Promise<AnalysisReport> {
-	const records = await readJsonl<AttemptRecord>(resultsPath);
+	const attempts = await readJsonl<AttemptRecord>(resultsPath);
+	const visualScores = await readJsonl<VisualScoreRecord>(
+		join(dirname(resultsPath), "visual-scores.jsonl"),
+	);
+	const visualByRun = new Map(visualScores.map((score) => [score.run_id, score]));
+	const records = attempts.map((record) => {
+		const visual = visualByRun.get(record.run_id);
+		return visual
+			? {
+					...record,
+					scores: {
+						...record.scores,
+						visual_blinded_0_100: visual.mean,
+						visual_rater_count: visual.rater_count,
+						scorer_agreement: visual.scorer_agreement,
+					},
+					oracles: {
+						...record.oracles,
+						visual_scores_path: visual.visual_scores_path,
+					},
+				}
+			: record;
+	});
 	const config = await readJson<{
 		bootstrap: { samples: number; seed: number };
 		margins: Record<string, number>;

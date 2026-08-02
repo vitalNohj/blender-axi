@@ -295,23 +295,107 @@ export function aggregateVisualScores(
 	return output;
 }
 
+function scoreAgreement(left: VisualScore, right: VisualScore): number {
+	const maximums = [20, 20, 15, 15, 15, 10, 5];
+	const leftValues = [
+		left.brief_adherence,
+		left.silhouette_role_readability,
+		left.form_proportion,
+		left.material_value_readability,
+		left.finish_defect_control,
+		left.composition_framing,
+		left.distinctiveness,
+	];
+	const rightValues = [
+		right.brief_adherence,
+		right.silhouette_role_readability,
+		right.form_proportion,
+		right.material_value_readability,
+		right.finish_defect_control,
+		right.composition_framing,
+		right.distinctiveness,
+	];
+	return (
+		leftValues.reduce(
+			(sum, value, index) =>
+				sum + 1 - Math.abs(value - rightValues[index]!) / maximums[index]!,
+			0,
+		) / leftValues.length
+	);
+}
+
+export function scorerAgreement(
+	scores: VisualScore[],
+	items: BlindItem[],
+): number {
+	const byItem = new Map<string, VisualScore[]>();
+	for (const score of scores)
+		byItem.set(score.opaque_id, [
+			...(byItem.get(score.opaque_id) ?? []),
+			score,
+		]);
+	const agreements: number[] = [];
+	for (const values of byItem.values())
+		for (let left = 0; left < values.length; left += 1)
+			for (let right = left + 1; right < values.length; right += 1)
+				agreements.push(scoreAgreement(values[left]!, values[right]!));
+	for (const duplicate of items.filter((item) => item.duplicate_of !== null)) {
+		const original = byItem.get(duplicate.duplicate_of!);
+		const repeated = byItem.get(duplicate.opaque_id);
+		if (!original || !repeated)
+			throw new Error(`Duplicate ${duplicate.opaque_id} is missing scores`);
+		for (const first of original) {
+			const second = repeated.find((score) => score.rater_id === first.rater_id);
+			if (!second)
+				throw new Error(
+					`Duplicate ${duplicate.opaque_id} is missing rater ${first.rater_id}`,
+				);
+			agreements.push(scoreAgreement(first, second));
+		}
+	}
+	if (!agreements.length)
+		throw new Error("Scorer agreement requires at least two comparable scores");
+	return agreements.reduce((sum, value) => sum + value, 0) / agreements.length;
+}
+
 export async function closeScoring(
 	scoringRoot: string,
 	minimumRaters: number,
+	minimumAgreement: number,
 ): Promise<{
 	aggregate: Record<string, { mean: number; rater_count: number }>;
 	run_scores: Record<string, { mean: number; rater_count: number }>;
+	scorer_agreement: number;
 }> {
 	const mapping = await readJson<{
 		scoring_closed: boolean;
 		items: BlindItem[];
 	}>(join(scoringRoot, "PRIVATE-blind-map.json"));
-	if (mapping.scoring_closed)
-		throw new Error("Visual scoring is already closed");
-	const aggregate = aggregateVisualScores(
-		await readVisualScores(scoringRoot),
-		minimumRaters,
-	);
+	if (mapping.scoring_closed) {
+		const closed = await readJson<{
+			scores: Record<string, { mean: number; rater_count: number }>;
+			run_scores: Record<string, { mean: number; rater_count: number }>;
+			scorer_agreement: number;
+			minimum_agreement: number;
+		}>(join(scoringRoot, "aggregate.json"));
+		if (
+			closed.minimum_agreement !== minimumAgreement ||
+			closed.scorer_agreement < minimumAgreement
+		)
+			throw new Error("Closed visual scoring does not satisfy frozen agreement");
+		return {
+			aggregate: closed.scores,
+			run_scores: closed.run_scores,
+			scorer_agreement: closed.scorer_agreement,
+		};
+	}
+	const scores = await readVisualScores(scoringRoot);
+	const aggregate = aggregateVisualScores(scores, minimumRaters);
+	const agreement = scorerAgreement(scores, mapping.items);
+	if (agreement < minimumAgreement)
+		throw new Error(
+			`Scorer agreement ${agreement.toFixed(3)} is below frozen minimum ${minimumAgreement.toFixed(3)}`,
+		);
 	const byRun = new Map<string, Array<{ mean: number; rater_count: number }>>();
 	for (const item of mapping.items) {
 		if (item.duplicate_of !== null) continue;
@@ -336,11 +420,13 @@ export async function closeScoring(
 		schema_version: "1.0.0",
 		scores: aggregate,
 		run_scores: runScores,
+		scorer_agreement: agreement,
+		minimum_agreement: minimumAgreement,
 	});
 	await writeJsonAtomic(join(scoringRoot, "PRIVATE-blind-map.json"), {
 		...mapping,
 		scoring_closed: true,
 		closed_at: new Date().toISOString(),
 	});
-	return { aggregate, run_scores: runScores };
+	return { aggregate, run_scores: runScores, scorer_agreement: agreement };
 }

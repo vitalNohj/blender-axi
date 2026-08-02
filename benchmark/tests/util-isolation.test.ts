@@ -30,8 +30,11 @@ describe("isolation and redaction", () => {
 			PATH: "/bin",
 			API_KEY: "secret",
 			HOME: "/user",
-		});
-		expect(environment.API_KEY).toBeUndefined();
+		}, ["API_KEY"]);
+		expect(environment.API_KEY).toBe("secret");
+		expect(
+			sanitizedEnvironment(layout, port, { API_KEY: "secret" }).API_KEY,
+		).toBeUndefined();
 		expect(environment.HOME).toBe(join(root, "home"));
 		expect(environment.BLENDER_AXI_PORT).toBe(String(port));
 	});

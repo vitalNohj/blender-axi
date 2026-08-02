@@ -91,6 +91,7 @@ The runner stops before configured dollar, wall-time, invalid-attempt, or critic
 ```text
 <runs>/
   results.jsonl
+  visual-scores.jsonl       append-only visual score sidecar
   <run_id>/
     attempt.json
     owned-processes.json
@@ -144,7 +145,7 @@ npm run benchmark -- visual bundle \
 
 The bundle command reopens each valid `.blend` and renders fixed front, side, and three-quarter views with the same post-hoc camera, lights, resolution, color management, and CPU-compatible engine. Keep `PRIVATE-blind-map.json` from raters. Public manifests reveal only opaque IDs and image paths. Raters must complete six owner-approved calibration anchors before benchmark scores. Forms enforce the 100-point rubric and include 10% duplicate artifacts for stability. Set `calibration_complete=true` only after calibration.
 
-Close scores only after every artifact has three or more independent raters:
+Close scores only after every artifact has three or more independent raters and the duplicate/inter-rater agreement meets the frozen threshold:
 
 ```sh
 npm run benchmark -- visual close \
@@ -152,7 +153,7 @@ npm run benchmark -- visual close \
   --results /tmp/blender-bench/pilot-runs/results.jsonl
 ```
 
-Do not unblind early. Deterministic score, blinded visual score, and Unity readiness remain separate outputs.
+Do not unblind early. Closing appends visual results to `visual-scores.jsonl`; it never rewrites `results.jsonl`, and reporting joins the two datasets by `run_id`. Deterministic score, blinded visual score, scorer agreement, and Unity readiness remain separate outputs.
 
 ## Analysis and reports
 

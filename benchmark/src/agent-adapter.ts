@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { AgentAdapter, AgentResult } from "./runner.js";
 import type { AttemptRecord, ToolEvent } from "./types.js";
 import { extractToolEvents } from "./transcript.js";
-import { readJson } from "./util.js";
+import { readJson, redact } from "./util.js";
 
 interface CommandConfig {
 	protocol: "jsonl-stdout-v1";
@@ -13,6 +13,7 @@ interface CommandConfig {
 	arm_args: Record<"axi" | "mcp", string[]>;
 	required_fresh_session_args: string[];
 	required_disable_ambient_args: string[];
+	credential_environment_variables: string[];
 }
 interface ProviderEnvelope {
 	type?: string;
@@ -71,14 +72,17 @@ export class CommandAgentAdapter implements AgentAdapter {
 			}, input.task.timeout_seconds * 1000);
 			child.once("exit", async (code, signal) => {
 				clearTimeout(timer);
+				const secrets = config.credential_environment_variables
+					.map((name) => input.environment[name])
+					.filter((value): value is string => Boolean(value));
 				await writeFile(
 					join(input.runRoot, "logs", "agent.stdout.log"),
-					stdout,
+					String(redact(stdout, secrets)),
 					{ mode: 0o600 },
 				);
 				await writeFile(
 					join(input.runRoot, "logs", "agent.stderr.log"),
-					stderr,
+					String(redact(stderr, secrets)),
 					{ mode: 0o600 },
 				);
 				const lines = stdout.split(/\r?\n/u).filter(Boolean);
@@ -108,6 +112,14 @@ export class CommandAgentAdapter implements AgentAdapter {
 					[...envelopes].reverse().find((record) => record.cache)?.cache ?? {};
 				const events: ToolEvent[] = extractToolEvents(records);
 				if (timedOut) usage.api_cost_usd ??= null;
+				if (!timedOut && (code !== 0 || signal !== null)) {
+					reject(
+						new Error(
+							`Provider adapter exited with ${signal ?? `code ${String(code)}`}: ${String(redact(stderr.slice(-1000), secrets))}`,
+						),
+					);
+					return;
+				}
 				resolvePromise({
 					answer: timedOut ? `${answer}\n[benchmark timeout]` : answer,
 					transcript: `${stdout}\n${stderr}`,

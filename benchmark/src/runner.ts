@@ -24,6 +24,8 @@ import {
 import { buildAttemptRecord, currentFixtureHash } from "./record.js";
 import { detectPolicyViolations } from "./policy.js";
 import { gradeRun } from "./grading.js";
+import type { GradeResult } from "./grading.js";
+import { preflightChecks } from "./preflight.js";
 import type {
 	AttemptRecord,
 	PlanCell,
@@ -61,6 +63,9 @@ interface ArmsConfig {
 	common: { base_instructions: string };
 	arms: Record<"axi" | "mcp", { condition_instructions: string }>;
 }
+interface AgentCommandConfig {
+	credential_environment_variables: string[];
+}
 export interface AgentResult {
 	answer: string;
 	transcript: string;
@@ -89,6 +94,34 @@ export interface SweepResult {
 	skipped_completed: number;
 	stopped_reason: string | null;
 	results_path: string;
+}
+
+export function infrastructureFailure(
+	task: TaskManifest,
+	runId: string,
+	error: Error,
+): {
+	grade: GradeResult;
+	validity: { status: "invalid"; invalid_reason: string };
+} {
+	return {
+		grade: {
+			schema_version: "1.0.0",
+			task_id: task.id,
+			run_id: runId,
+			status: "infrastructure_invalid",
+			functional_success: false,
+			critical_failure: false,
+			deterministic_structure_0_100: null,
+			unity_readiness_0_100: null,
+			hard_failure_ids: [],
+			oracle_results: [],
+		},
+		validity: {
+			status: "invalid",
+			invalid_reason: `infrastructure_error:${error.message}`,
+		},
+	};
 }
 
 export function frozenCost(
@@ -258,12 +291,38 @@ export async function runSweep(options: {
 	const benchmarkRoot = resolve(options.benchmarkRoot);
 	const plan = await readJson<SeedPlan>(options.planPath);
 	assertValidPlan(plan);
+	if (options.selectedCells) {
+		if (options.selectedCells.length === 0)
+			throw new Error("Selected-cell execution requires at least one cell ID");
+		const selected = new Set(options.selectedCells);
+		if (selected.size !== options.selectedCells.length)
+			throw new Error("Selected-cell execution contains duplicate cell IDs");
+		const known = new Set(plan.cells.map((cell) => cell.cell_id));
+		const unknown = options.selectedCells.filter((id) => !known.has(id));
+		if (unknown.length)
+			throw new Error(`Unknown selected cell IDs: ${unknown.join(", ")}`);
+	}
 	const config = await readJson<FrozenConfig>(
 		join(benchmarkRoot, "config", "frozen.json"),
 	);
 	const arms = await readJson<ArmsConfig>(
 		join(benchmarkRoot, "config", "arms.json"),
 	);
+	const agentCommand = await readJson<AgentCommandConfig>(
+		join(benchmarkRoot, "config", "agent-command.json"),
+	);
+	if (options.live) {
+		const checks = await preflightChecks(benchmarkRoot, {
+			live: true,
+			blenderExecutable: options.blenderExecutable,
+			addonPath: options.addonPath,
+		});
+		const failures = checks.filter((check) => !check.ok);
+		if (failures.length)
+			throw new Error(
+				`Live pin gate failed: ${failures.map((check) => check.id).join(", ")}`,
+			);
+	}
 	const baseInstructions = await readFile(
 		join(benchmarkRoot, arms.common.base_instructions),
 		"utf8",
@@ -283,7 +342,6 @@ export async function runSweep(options: {
 		))
 	)
 		throw new Error("Plan manifest hash does not match current task manifests");
-
 	await mkdir(options.runsRoot, { recursive: true });
 	const resultsPath = join(options.runsRoot, "results.jsonl");
 	const existing = await readJsonl<AttemptRecord>(resultsPath);
@@ -353,11 +411,17 @@ export async function runSweep(options: {
 			config.limits.port_max,
 			cell.seed,
 		);
-		const environment = sanitizedEnvironment(layout, port);
+		const environment = sanitizedEnvironment(
+			layout,
+			port,
+			process.env,
+			agentCommand.credential_environment_variables,
+		);
 		const started = new Date();
 		let blenderPid: number | null = null;
 		let launchSeconds: number | null = null;
 		let agentResult: AgentResult;
+		let infrastructureError: Error | null = null;
 		try {
 			await assertPortClosed(port);
 			if (options.live) {
@@ -409,6 +473,7 @@ export async function runSweep(options: {
 				conditionInstructions: arms.arms[cell.arm].condition_instructions,
 			});
 		} catch (error) {
+			infrastructureError = error as Error;
 			agentResult = {
 				answer: `Agent adapter crashed: ${(error as Error).message}`,
 				transcript: String((error as Error).stack ?? error),
@@ -450,15 +515,20 @@ export async function runSweep(options: {
 				(safeEvents.length ? "\n" : ""),
 			{ mode: 0o600 },
 		);
-		const grade = await gradeRun({
-			benchmarkRoot,
-			runRoot: layout.root,
-			runId: cell.cell_id,
-			task,
-			arm: cell.arm,
-			blenderExecutable: options.blenderExecutable,
-			fixtureHashBefore: entry.artifact_sha256,
-		});
+		const infrastructure = infrastructureError
+			? infrastructureFailure(task, cell.cell_id, infrastructureError)
+			: null;
+		const grade = infrastructure
+			? infrastructure.grade
+			: await gradeRun({
+					benchmarkRoot,
+					runRoot: layout.root,
+					runId: cell.cell_id,
+					task,
+					arm: cell.arm,
+					blenderExecutable: options.blenderExecutable,
+					fixtureHashBefore: entry.artifact_sha256,
+				});
 		if (
 			detectPolicyViolations(cell.arm, safeEvents).length &&
 			grade.status !== "policy_violation"
@@ -480,6 +550,7 @@ export async function runSweep(options: {
 			events: safeEvents,
 			answer: safeAnswer,
 			grade,
+			validity: infrastructure?.validity,
 			startedAt: started.toISOString(),
 			endedAt: ended.toISOString(),
 			wallSeconds: (ended.getTime() - started.getTime()) / 1000,

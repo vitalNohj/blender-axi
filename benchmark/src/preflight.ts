@@ -88,15 +88,17 @@ export async function preflightChecks(
 	const blenderVersion = await executableVersion(blender);
 	checks.push({
 		id: "blender",
-		ok: blenderVersion?.includes("5.2.0 LTS") ?? false,
+		ok: blenderVersion?.includes(String(config.versions.blender)) ?? false,
 		detail: blenderVersion ?? "Blender executable unavailable",
 	});
 	if (fixture.index && blenderVersion)
 		checks.push({
 			id: "blender-hash",
 			ok:
-				(await sha256File(blender)) === fixture.index.blender_executable_sha256,
-			detail: "Blender executable matches fixture generator pin",
+				(await sha256File(blender)) === fixture.index.blender_executable_sha256 &&
+				fixture.index.blender_executable_sha256 ===
+					config.versions.blender_executable_sha256,
+			detail: "Blender executable matches frozen config and fixture generator pins",
 		});
 	const addonPath =
 		options.addonPath ?? process.env.BLENDER_MCP_ADDON_PATH ?? "";
@@ -182,7 +184,9 @@ export async function preflightChecks(
 			id: "budget",
 			ok:
 				typeof config.limits.max_dollars === "number" &&
-				typeof config.limits.max_wall_seconds === "number",
+				config.limits.max_dollars > 0 &&
+				typeof config.limits.max_wall_seconds === "number" &&
+				config.limits.max_wall_seconds > 0,
 			detail: "Captain-approved dollar and wall ceilings required",
 		});
 		checks.push({
@@ -190,7 +194,8 @@ export async function preflightChecks(
 			ok: Boolean(
 				agent.executable &&
 					agent.required_fresh_session_args.length &&
-					agent.required_disable_ambient_args.length,
+					agent.required_disable_ambient_args.length &&
+					agent.credential_environment_variables.length,
 			),
 			detail: "Fresh isolated provider adapter must be frozen",
 		});

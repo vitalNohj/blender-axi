@@ -12,21 +12,28 @@ import type {
 import { checkTranscriptPolicy } from "./policy.js";
 import { fileMetadata, readJson, sha256File, writeJsonAtomic } from "./util.js";
 
-interface SceneObject {
+export interface SceneObject {
 	name: string;
 	type: string;
+	data_name: string | null;
 	parent: string | null;
 	location: number[];
+	rotation_euler: number[];
 	scale: number[];
 	dimensions: number[];
 	matrix_world: number[][];
 	bounds_min: number[] | null;
 	bounds_max: number[] | null;
 	triangles: number;
+	vertices: number;
+	collider_convex: boolean | null;
+	forward_y_world: number[];
 	materials: Array<string | null>;
 	custom_properties: Record<string, unknown>;
 }
-interface SceneFacts {
+export interface SceneFacts {
+	unit_system: string;
+	unit_scale: number;
 	objects: SceneObject[];
 	materials: Array<{
 		name: string;
@@ -42,6 +49,9 @@ interface SceneFacts {
 	};
 	mesh_bounds_min: number[] | null;
 	mesh_bounds_max: number[] | null;
+	world: Record<string, unknown> | null;
+	render: Record<string, unknown>;
+	renders_inside_frame: boolean | null;
 }
 
 export interface GradeResult {
@@ -51,7 +61,7 @@ export interface GradeResult {
 	status: OutcomeStatus;
 	functional_success: boolean;
 	critical_failure: boolean;
-	deterministic_structure_0_100: number;
+	deterministic_structure_0_100: number | null;
 	unity_readiness_0_100: number | null;
 	hard_failure_ids: string[];
 	oracle_results: OracleResult[];
@@ -83,6 +93,23 @@ function objectByName(
 	name: string,
 ): SceneObject | undefined {
 	return scene.objects.find((object) => object.name === name);
+}
+
+function isDescendantOf(scene: SceneFacts, object: SceneObject, root: string): boolean {
+	let current: SceneObject | undefined = object;
+	while (current?.parent) {
+		if (current.parent === root) return true;
+		current = objectByName(scene, current.parent);
+	}
+	return object.name === root;
+}
+
+function sceneBounds(scene: SceneFacts): { dimensions: number[]; center: number[] } | null {
+	if (!scene.mesh_bounds_min || !scene.mesh_bounds_max) return null;
+	return {
+		dimensions: scene.mesh_bounds_max.map((value, index) => value - scene.mesh_bounds_min![index]!),
+		center: scene.mesh_bounds_max.map((value, index) => (value + scene.mesh_bounds_min![index]!) / 2),
+	};
 }
 
 function fail(
@@ -165,7 +192,7 @@ async function inspectBlend(
 	return await readJson<SceneFacts>(outputPath);
 }
 
-function gradeScene(
+export function gradeScene(
 	check: CheckDefinition,
 	scene: SceneFacts | null,
 	start: SceneFacts | null,
@@ -173,7 +200,7 @@ function gradeScene(
 	if (!scene)
 		return fail(check, "Result scene is unavailable or cannot reopen");
 	const params = check.params ?? {};
-	if (check.id === "crate-structure") {
+	if (check.id === "crate-structure" && params.object) {
 		const object = objectByName(scene, String(params.object));
 		if (!object) return fail(check, `Missing ${String(params.object)}`);
 		const tolerance = Number(params.dimension_tolerance);
@@ -243,13 +270,15 @@ function gradeScene(
 		const forbiddenObjects = (params.forbidden_objects as string[]).some(
 			(name) => objectByName(scene, name),
 		);
-		return required && !forbiddenObjects
+		const forbiddenMeshes = (params.forbidden_meshes as string[] | undefined)?.some(
+			(name) => scene.objects.some((object) => object.data_name === name),
+		) ?? false;
+		return required && !forbiddenObjects && !forbiddenMeshes
 			? pass(check, "RecoveredPart exists without partial object")
 			: fail(check, "Recovery result has missing or half-built objects");
 	}
 	if (
 		[
-			"crate-structure",
 			"mast-height",
 			"lamp-emission",
 			"recovery-scene",
@@ -262,14 +291,15 @@ function gradeScene(
 	if (rootName && !root) return fail(check, `Missing root ${rootName}`);
 	if (
 		Array.isArray(params.required_objects) &&
-		!(params.required_objects as string[]).every((name) =>
-			objectByName(scene, name),
-		)
+		!(params.required_objects as string[]).every((name) => {
+			const object = objectByName(scene, name);
+			return object && (!rootName || isDescendantOf(scene, object, rootName));
+		})
 	)
 		return fail(check, "Required named objects are missing");
 	if (Array.isArray(params.required_name_patterns)) {
 		for (const pattern of params.required_name_patterns as string[])
-			if (!scene.objects.some((item) => item.name.includes(pattern)))
+			if (!scene.objects.some((item) => item.name.includes(pattern) && (!rootName || isDescendantOf(scene, item, rootName))))
 				return fail(check, `Missing semantic part ${pattern}`);
 	}
 	if (
@@ -282,6 +312,34 @@ function gradeScene(
 			check,
 			`Missing ${String(params.required_name_pattern)} object`,
 		);
+	if (params.minimum_propulsion_count) {
+		const propulsion = scene.objects.filter(
+			(item) => item.name.includes("Propulsion") && (!rootName || isDescendantOf(scene, item, rootName)),
+		).length;
+		if (propulsion < Number(params.minimum_propulsion_count))
+			return fail(check, "Propulsion module count below minimum");
+	}
+	const bounds = sceneBounds(scene);
+	if (Array.isArray(params.bounds)) {
+		if (!bounds || !vectorNear(bounds.dimensions, params.bounds as number[], Number(params.bounds_tolerance)))
+			return fail(check, "Scene bounds differ from contract");
+	}
+	if (Array.isArray(params.max_bounds)) {
+		if (!bounds || (params.max_bounds as number[]).some((maximum, index) => bounds.dimensions[index]! > maximum + 0.0001))
+			return fail(check, "Scene exceeds maximum bounds");
+	}
+	if (params.bottom_center_pivot) {
+		if (!root || !bounds || !scene.mesh_bounds_min || !near(root.location[0]!, bounds.center[0]!, 0.001) || !near(root.location[1]!, bounds.center[1]!, 0.001) || !near(root.location[2]!, scene.mesh_bounds_min[2]!, 0.001))
+			return fail(check, "Root pivot is not at bottom center");
+	}
+	if (params.ground_z !== undefined) {
+		if (!scene.mesh_bounds_min || !near(scene.mesh_bounds_min[2]!, Number(params.ground_z), Number(params.ground_tolerance)))
+			return fail(check, "Scene is not grounded at required Z");
+	}
+	if (params.forward_axis) {
+		if (String(params.forward_axis) !== "+Y" || !root || !vectorNear(root.forward_y_world, [0, 1, 0], 0.001))
+			return fail(check, "Root forward axis is not applied +Y");
+	}
 	if (
 		params.max_triangles &&
 		scene.totals.triangles > Number(params.max_triangles)
@@ -297,6 +355,24 @@ function gradeScene(
 		scene.totals.materials > Number(params.max_materials)
 	)
 		return fail(check, "Material budget exceeded");
+	if (params.max_material_slots && scene.objects.some((item) => item.type === "MESH" && item.materials.length > Number(params.max_material_slots)))
+		return fail(check, "Material slot budget exceeded");
+	if (params.collider_convex) {
+		const collider = objectByName(scene, String(params.required_object));
+		if (!collider || collider.collider_convex !== true)
+			return fail(check, "Collider proxy is not convex");
+	}
+	if (params.max_lod0_triangles) {
+		const triangles = scene.objects.filter((item) => item.name.startsWith("LOD0")).reduce((sum, item) => sum + item.triangles, 0);
+		if (!triangles || triangles > Number(params.max_lod0_triangles))
+			return fail(check, "LOD0 triangle budget exceeded or LOD0 is empty");
+	}
+	if (params.lod1_reduces_triangles) {
+		const lod0 = scene.objects.filter((item) => item.name.startsWith("LOD0")).reduce((sum, item) => sum + item.triangles, 0);
+		const lod1 = scene.objects.filter((item) => item.name.startsWith("LOD1")).reduce((sum, item) => sum + item.triangles, 0);
+		if (!lod1 || lod1 >= lod0)
+			return fail(check, "LOD1 does not reduce triangle count");
+	}
 	if (
 		params.no_armature &&
 		scene.objects.some((item) => item.type === "ARMATURE")
@@ -309,15 +385,17 @@ function gradeScene(
 		return fail(check, "Negative scale found");
 	if (
 		params.unit_scale &&
-		scene.objects
+		(scene.unit_system !== "METRIC" || !near(scene.unit_scale, 1, 0.0001) || scene.objects
 			.filter((item) => item.type === "MESH")
-			.some((item) => !vectorNear(item.scale, [1, 1, 1], 0.0001))
+			.some((item) => !vectorNear(item.scale, [1, 1, 1], 0.0001)))
 	)
 		return fail(check, "Unapplied scale found");
+	if (params.renders_inside_frame && scene.renders_inside_frame !== true)
+		return fail(check, "Scene geometry is clipped by the active camera");
 	return pass(check, "Scene structural contract passes");
 }
 
-function gradePreservation(
+export function gradePreservation(
 	check: CheckDefinition,
 	scene: SceneFacts | null,
 	start: SceneFacts | null,
@@ -337,6 +415,22 @@ function gradePreservation(
 			if (!after || serialize(before) !== serialize(after))
 				return fail(check, `Unexpected change to ${before.name}`);
 		}
+		const allowedMaterials = new Set(
+			start.objects
+				.filter((object) => allowed.has(object.name))
+				.flatMap((object) => object.materials)
+				.filter((name): name is string => name !== null),
+		);
+		for (const before of start.materials) {
+			if (allowedMaterials.has(before.name)) continue;
+			const after = scene.materials.find((material) => material.name === before.name);
+			if (!after || JSON.stringify(before) !== JSON.stringify(after))
+				return fail(check, `Unexpected change to material ${before.name}`);
+		}
+		if (JSON.stringify(start.world) !== JSON.stringify(scene.world))
+			return fail(check, "World settings changed unexpectedly");
+		if (JSON.stringify(start.render) !== JSON.stringify(scene.render))
+			return fail(check, "Render settings changed unexpectedly");
 		return pass(check, "All unrelated scene objects are unchanged");
 	}
 	for (const name of (params.objects as string[] | undefined) ?? []) {
@@ -421,9 +515,12 @@ async function gradeRoundTrip(
 		);
 	const required =
 		(check.params?.required_objects as string[] | undefined) ?? [];
+	const requiredMesh = check.params?.required_mesh
+		? [String(check.params.required_mesh)]
+		: [];
 	if (
-		required.length &&
-		!required.every((name) =>
+		(required.length || requiredMesh.length) &&
+		![...required, ...requiredMesh].every((name) =>
 			evidence.objects.some(
 				(object) => object === name || object.startsWith(name),
 			),
@@ -531,10 +628,19 @@ export async function gradeRun(options: {
 			const missing: string[] = [];
 			for (const path of paths)
 				if (!(await exists(join(runRoot, path)))) missing.push(path);
+			let mismatch: string | null = null;
+			if (!missing.length && check.params?.must_differ_from) {
+				const output = join(runRoot, String(check.params.path));
+				const source = join(runRoot, String(check.params.must_differ_from));
+				if (!(await exists(source)) || (await sha256File(output)) === (await sha256File(source)))
+					mismatch = "Repaired artifact is missing or unchanged from source";
+			}
 			oracleResults.push(
 				missing.length
 					? fail(check, `Missing artifacts: ${missing.join(", ")}`)
-					: pass(check, "Required artifacts exist"),
+					: mismatch
+						? fail(check, mismatch)
+						: pass(check, "Required artifacts exist and content constraints pass"),
 			);
 		} else if (check.kind === "reopen") {
 			oracleResults.push(

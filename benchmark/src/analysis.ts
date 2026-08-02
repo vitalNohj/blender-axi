@@ -145,14 +145,26 @@ export function clusteredPairedBootstrap(
 	const random = mulberry32(options.seed);
 	const distribution: number[] = [];
 	for (let sampleIndex = 0; sampleIndex < options.samples; sampleIndex += 1) {
-		const sample: PairValue[] = [];
+		const sampledClusterStatistics: number[] = [];
 		for (let taskIndex = 0; taskIndex < tasks.length; taskIndex += 1) {
 			const selectedTask = tasks[Math.floor(random() * tasks.length)]!;
 			const taskPairs = taskMap.get(selectedTask)!;
+			const sampledPairs: PairValue[] = [];
 			for (let pairIndex = 0; pairIndex < taskPairs.length; pairIndex += 1)
-				sample.push(taskPairs[Math.floor(random() * taskPairs.length)]!);
+				sampledPairs.push(taskPairs[Math.floor(random() * taskPairs.length)]!);
+			sampledClusterStatistics.push(
+				quantile(
+					sampledPairs.map((pair) =>
+						options.ratio ? pair.axi / pair.mcp : pair.axi - pair.mcp,
+					),
+					0.5,
+				) ?? 0,
+			);
 		}
-		distribution.push(statistic(sample));
+		distribution.push(
+			sampledClusterStatistics.reduce((sum, value) => sum + value, 0) /
+				sampledClusterStatistics.length,
+		);
 	}
 	return {
 		estimate,

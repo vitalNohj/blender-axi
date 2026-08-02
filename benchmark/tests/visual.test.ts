@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { aggregateVisualScores } from "../src/visual.js";
+import { aggregateVisualScores, scorerAgreement } from "../src/visual.js";
 
 const score = (rater: string, id = "OPAQUE") => ({
 	rater_id: rater,
@@ -23,5 +23,32 @@ describe("visual scoring", () => {
 		expect(
 			aggregateVisualScores([score("A"), score("B"), score("C")], 3),
 		).toEqual({ OPAQUE: { mean: 100, rater_count: 3 } });
+	});
+
+	it("measures both inter-rater and hidden-duplicate consistency", () => {
+		const scores = [
+			score("A", "ORIGINAL"),
+			score("B", "ORIGINAL"),
+			score("A", "DUPLICATE"),
+			score("B", "DUPLICATE"),
+		];
+		expect(
+			scorerAgreement(scores, [
+				{
+					opaque_id: "ORIGINAL",
+					source_run_id: "run",
+					source_path: "a.png",
+					bundle_path: "a.png",
+					duplicate_of: null,
+				},
+				{
+					opaque_id: "DUPLICATE",
+					source_run_id: "run",
+					source_path: "a.png",
+					bundle_path: "b.png",
+					duplicate_of: "ORIGINAL",
+				},
+			]),
+		).toBe(1);
 	});
 });

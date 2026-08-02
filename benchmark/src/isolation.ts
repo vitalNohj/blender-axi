@@ -158,8 +158,9 @@ export function sanitizedEnvironment(
 	layout: RunLayout,
 	port: number,
 	inherited: NodeJS.ProcessEnv = process.env,
+	credentialEnvironmentVariables: string[] = [],
 ): NodeJS.ProcessEnv {
-	const allow = ["PATH", "TMPDIR"];
+	const allow = ["PATH", "TMPDIR", ...credentialEnvironmentVariables];
 	const environment: NodeJS.ProcessEnv = {};
 	for (const key of allow)
 		if (inherited[key] !== undefined) environment[key] = inherited[key];

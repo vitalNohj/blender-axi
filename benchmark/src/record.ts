@@ -169,7 +169,9 @@ export async function buildAttemptRecord(
 			failure_type: input.grade.functional_success ? null : input.grade.status,
 			failure_stage: input.grade.functional_success
 				? null
-				: "deterministic_grading",
+				: input.grade.status === "infrastructure_invalid"
+					? "infrastructure"
+					: "deterministic_grading",
 			data_loss: input.grade.status === "damaging_failure",
 			agent_claimed_success: /(?:done|complete|success)/iu.test(input.answer),
 			oracle_pass: input.grade.functional_success,

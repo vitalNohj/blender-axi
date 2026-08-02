@@ -79,6 +79,36 @@ function listFlag(parsed: Parsed, name: string): string[] | undefined {
 }
 class UsageError extends Error {}
 
+function assertPreflightPlan(plan: SeedPlan): void {
+	const expected = new Set(["P1:axi", "P1:mcp", "P5:axi", "P5:mcp"]);
+	const actual = plan.cells.map((cell) => `${cell.task_id}:${cell.arm}`);
+	if (
+		plan.kind !== "preflight" ||
+		plan.cells.length !== expected.size ||
+		new Set(actual).size !== expected.size ||
+		actual.some((key) => !expected.has(key))
+	)
+		throw new Error(
+			"Live preflight plan must contain exactly one P1 and P5 cell per arm",
+		);
+	for (const taskId of ["P1", "P5"]) {
+		const pair = plan.cells.filter((cell) => cell.task_id === taskId);
+		if (
+			pair.length !== 2 ||
+			pair[0]!.pair_id !== pair[1]!.pair_id ||
+			pair[0]!.replicate !== pair[1]!.replicate ||
+			pair[0]!.sequence !== pair[1]!.sequence ||
+			new Set(pair.map((cell) => cell.order_in_pair)).size !== 2 ||
+			pair.some(
+				(cell) =>
+					(cell.sequence === "AXI_MCP") !==
+					(cell.arm === "axi" ? cell.order_in_pair === 1 : cell.order_in_pair === 2),
+			)
+		)
+			throw new Error(`Live preflight ${taskId} pair metadata is inconsistent`);
+	}
+}
+
 function print(value: Record<string, unknown>): void {
 	for (const [key, item] of Object.entries(value)) {
 		if (Array.isArray(item)) {
@@ -238,16 +268,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
 		if (live) {
 			const planPath = stringFlag(parsed, "--plan");
 			const plan = await readJson<SeedPlan>(planPath);
-			if (
-				plan.kind !== "preflight" ||
-				plan.cells.length !== 4 ||
-				new Set(plan.cells.map((cell) => cell.task_id)).size !== 2 ||
-				!plan.cells.some((cell) => cell.task_id === "P1") ||
-				!plan.cells.some((cell) => cell.task_id === "P5")
-			)
-				throw new Error(
-					"Live preflight plan must contain exactly P1 and P5 once per arm",
-				);
+			assertPreflightPlan(plan);
 			const result = await runSweep({
 				benchmarkRoot,
 				planPath,
@@ -275,11 +296,14 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
 			throw new UsageError(
 				"run requires selected; full unbounded campaigns are intentionally unavailable",
 			);
+		const selectedCells = listFlag(parsed, "--cells");
+		if (!selectedCells?.length)
+			throw new UsageError("run selected requires a non-empty --cells list");
 		const result = await runSweep({
 			benchmarkRoot,
 			planPath: stringFlag(parsed, "--plan"),
 			runsRoot: stringFlag(parsed, "--runs"),
-			selectedCells: listFlag(parsed, "--cells"),
+			selectedCells,
 			adapter: new CommandAgentAdapter(benchmarkRoot),
 			blenderExecutable: stringFlag(parsed, "--blender"),
 			addonPath: stringFlag(parsed, "--addon"),
@@ -363,7 +387,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
 			"--results",
 		]);
 		const config = await readJson<{
-			visual: { duplicate_fraction: number; minimum_raters: number };
+			visual: {
+				duplicate_fraction: number;
+				minimum_raters: number;
+				minimum_agreement: number;
+			};
 		}>(join(benchmarkRoot, "config", "frozen.json"));
 		if (subcommand === "bundle") {
 			const result = await createBlindBundles({
@@ -391,10 +419,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
 			const result = await closeScoring(
 				stringFlag(parsed, "--scoring"),
 				config.visual.minimum_raters,
+				config.visual.minimum_agreement,
 			);
 			await applyVisualScores(
 				stringFlag(parsed, "--results"),
 				result.run_scores,
+				result.scorer_agreement,
 			);
 			print({
 				ok: true,
