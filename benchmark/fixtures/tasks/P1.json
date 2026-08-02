@@ -10,7 +10,7 @@
   "fixture": {
     "contract": "fixtures/specs/P1.fixture.json",
     "source_artifact": "micro.blend",
-    "immutable_sha256": "15b2443a27e3076fa5a3db7792022cde4f338f76273a2ba86cc77a03e4506235",
+    "immutable_sha256": "3b23406fae21af64f85d4359cbd3f6a0466cad8b3bf468e72faf59a387e771f0",
     "read_only": true
   },
   "required_artifacts": [{"kind": "blend", "path": "output/micro-result.blend"}, {"kind": "oracle_json", "path": "oracles/grade.json"}],

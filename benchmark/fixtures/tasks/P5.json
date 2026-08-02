@@ -7,7 +7,7 @@
   "timeout_class": "micro",
   "timeout_seconds": 180,
   "prompt": "Open the supplied failure.blend, which contains dirty project state that must be preserved. Run the read-only fixture/faulty_build.py once as supplied. Diagnose the exact failing function and source line from that first failure. Copy the script to workspace/repaired_build.py, repair that copy, and run it to complete the intended mesh object RecoveredPart. Remove any HalfBuiltTemporary object or TemporaryBrokenMesh left by the failed attempt. Preserve PreserveMarker and all its custom properties exactly. Save output/failure-recovered.blend. Do not modify the supplied fixture or supplied script. Report the diagnosis, work performed, and relative artifact paths.",
-  "fixture": {"contract": "fixtures/specs/P5.fixture.json", "source_artifact": "failure.blend", "immutable_sha256": "3fb451aee7f1d2a83de3a5467a823df48d81990eb39efff51aed8e1dc1d2aede", "read_only": true},
+  "fixture": {"contract": "fixtures/specs/P5.fixture.json", "source_artifact": "failure.blend", "immutable_sha256": "23c8a295db896b6f7ae6f0d2d141976cef37bd41d9225ff1866b72b27097ece5", "read_only": true},
   "required_artifacts": [{"kind": "blend", "path": "output/failure-recovered.blend"}, {"kind": "script", "path": "workspace/repaired_build.py"}, {"kind": "first_failure", "path": "transcript/interface.jsonl"}],
   "deterministic_oracles": [
     {"id": "first-failure-recorded", "kind": "first_failure", "required": true, "points": 15, "params": {"function": "connect_recovered_edges", "line": 13, "progress_line_count": 80}},

@@ -7,7 +7,7 @@
   "timeout_class": "extended",
   "timeout_seconds": 720,
   "prompt": "Using the supplied empty metric scene and neutral render rig, make a lightweight stylized non-royal quadrupedal enemy scout. Give it a clear +Y forward direction, a low alert silhouette, a visibly named SensorHead and two visibly named Propulsion modules. Use 4,000-12,000 triangles, at most five materials, deterministic names under EnemyScoutRoot, and no rig. Ground it at Z=0 with applied transforms and no negative scale. Save output/enemy-scout.blend, export output/enemy-scout.glb, and render front, side, and three-quarter views as output/enemy-front.png, output/enemy-side.png, and output/enemy-three-quarter.png. Report the work performed and relative artifact paths.",
-  "fixture": {"contract": "fixtures/specs/P4.fixture.json", "source_artifact": "enemy-empty.blend", "immutable_sha256": "bbad90c5ceffa41cbf480467f48cbf63e6aba6a8f3d70cb78473923419038c5e", "read_only": true},
+  "fixture": {"contract": "fixtures/specs/P4.fixture.json", "source_artifact": "enemy-empty.blend", "immutable_sha256": "37b6e3970fab7b5d5311310ff91641d282ca504245a4ac49dad45d38c0d68d48", "read_only": true},
   "required_artifacts": [{"kind": "blend", "path": "output/enemy-scout.blend"}, {"kind": "glb", "path": "output/enemy-scout.glb"}, {"kind": "render", "path": "output/enemy-front.png"}, {"kind": "render", "path": "output/enemy-side.png"}, {"kind": "render", "path": "output/enemy-three-quarter.png"}],
   "deterministic_oracles": [
     {"id": "artifacts-present", "kind": "artifact", "required": true, "points": 10},

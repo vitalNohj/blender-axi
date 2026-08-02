@@ -7,7 +7,7 @@
   "timeout_class": "standard",
   "timeout_seconds": 480,
   "prompt": "Using the supplied empty metric scene, create a simple articulated sentry under SentryRoot. Include TurretPivot and Barrel, named simple convex COLLIDER_* proxies, and LOD0 plus LOD1 where LOD1 has fewer triangles. Use overall dimensions no larger than 1.5 x 1.5 x 2.0 meters, no more than 8,000 LOD0 triangles, no more than three materials with packed or external texture files, applied transforms, +Y forward, and bottom-center root pivot at Z=0. Save output/sentry.blend, export Unity-target output/sentry.fbx as the primary artifact, and export output/sentry.glb as the secondary portable artifact. Report the work performed and relative artifact paths.",
-  "fixture": {"contract": "fixtures/specs/P6.fixture.json", "source_artifact": "unity-empty.blend", "immutable_sha256": "ea14e153210a7f7b9b75947e80addb4aaf6515e8de06c98d936eacd2659cc919", "read_only": true},
+  "fixture": {"contract": "fixtures/specs/P6.fixture.json", "source_artifact": "unity-empty.blend", "immutable_sha256": "2dfd009f96d0f5bcd755e2472760f00b9f0d49649ecea627b789b651fe5d71b8", "read_only": true},
   "required_artifacts": [{"kind": "blend", "path": "output/sentry.blend"}, {"kind": "fbx", "path": "output/sentry.fbx"}, {"kind": "glb", "path": "output/sentry.glb"}],
   "deterministic_oracles": [
     {"id": "artifacts-present", "kind": "artifact", "required": true, "points": 5},

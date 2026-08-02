@@ -7,7 +7,7 @@
   "timeout_class": "standard",
   "timeout_seconds": 480,
   "prompt": "Open the supplied edit.blend and inspect the named beacon. Make Mast exactly 30% taller while keeping its bottom and Base fixed. Change Lamp to amber emission with sRGB color #FF9D2E and emission strength 8. Preserve every other object, material, world, and render setting. Render the standardized front camera to output/edit-front.png and save output/edit-result.blend. Report the work performed and relative artifact paths.",
-  "fixture": {"contract": "fixtures/specs/P2.fixture.json", "source_artifact": "edit.blend", "immutable_sha256": "07e9d2eea5ed941c99d2901138f8aac4b75b834d2186df8119f53e6a8d77e6e6", "read_only": true},
+  "fixture": {"contract": "fixtures/specs/P2.fixture.json", "source_artifact": "edit.blend", "immutable_sha256": "1a23b7073104d98941e9749de0d269b45337689e1573c80ae6c713a502e9a4af", "read_only": true},
   "required_artifacts": [{"kind": "blend", "path": "output/edit-result.blend"}, {"kind": "render", "path": "output/edit-front.png"}, {"kind": "oracle_json", "path": "oracles/grade.json"}],
   "deterministic_oracles": [
     {"id": "artifacts-present", "kind": "artifact", "required": true, "points": 10},
