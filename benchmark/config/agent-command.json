@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0.0",
+  "protocol": "jsonl-stdout-v1",
+  "executable": null,
+  "common_args": [],
+  "arm_args": {
+    "axi": [],
+    "mcp": []
+  },
+  "required_fresh_session_args": [],
+  "required_disable_ambient_args": [],
+  "credential_environment_variables": [],
+  "notes": "Freeze a provider adapter before live execution. It must accept the complete prompt on stdin, emit durable provider JSONL on stdout, start a fresh non-persistent session, expose only arm-approved tools, disable ambient skills/hooks/MCPs, and never perform network access except provider API traffic."
+}

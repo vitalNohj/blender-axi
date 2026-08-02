@@ -1,0 +1,29 @@
+{
+  "schema_version": "1.0.0",
+  "id": "P6",
+  "version": "1.0.0",
+  "category": "unity_import",
+  "capability_scope": "shared",
+  "timeout_class": "standard",
+  "timeout_seconds": 480,
+  "prompt": "Using the supplied empty metric scene, create a simple articulated sentry under SentryRoot. Include TurretPivot and Barrel, named simple convex COLLIDER_* proxies, and LOD0 plus LOD1 where LOD1 has fewer triangles. Use overall dimensions no larger than 1.5 x 1.5 x 2.0 meters, no more than 8,000 LOD0 triangles, no more than three materials with packed or external texture files, applied transforms, +Y forward, and bottom-center root pivot at Z=0. Save output/sentry.blend, export Unity-target output/sentry.fbx as the primary artifact, and export output/sentry.glb as the secondary portable artifact. Report the work performed and relative artifact paths.",
+  "fixture": {"contract": "fixtures/specs/P6.fixture.json", "source_artifact": "unity-empty.blend", "immutable_sha256": "ea14e153210a7f7b9b75947e80addb4aaf6515e8de06c98d936eacd2659cc919", "read_only": true},
+  "required_artifacts": [{"kind": "blend", "path": "output/sentry.blend"}, {"kind": "fbx", "path": "output/sentry.fbx"}, {"kind": "glb", "path": "output/sentry.glb"}],
+  "deterministic_oracles": [
+    {"id": "artifacts-present", "kind": "artifact", "required": true, "points": 5},
+    {"id": "reopens", "kind": "reopen", "required": true, "points": 10},
+    {"id": "sentry-structure", "kind": "scene", "required": true, "points": 30, "params": {"root": "SentryRoot", "required_objects": ["TurretPivot", "Barrel", "LOD0", "LOD1"], "required_name_pattern": "COLLIDER_", "max_bounds": [1.5, 1.5, 2], "max_lod0_triangles": 8000, "lod1_reduces_triangles": true, "max_materials": 3, "forward_axis": "+Y", "bottom_center_pivot": true, "unit_scale": true}},
+    {"id": "glb-valid", "kind": "gltf", "required": true, "points": 10, "params": {"max_errors": 0}},
+    {"id": "fbx-roundtrip", "kind": "fbx_roundtrip", "required": true, "points": 15, "params": {"required_objects": ["SentryRoot", "TurretPivot", "Barrel", "LOD0", "LOD1"]}},
+    {"id": "unity-readiness", "kind": "unity", "required": true, "points": 30}
+  ],
+  "unity": {
+    "fixture_contract_version": "unity-urp-fbx-v1",
+    "editor_version": null,
+    "pipeline": "URP",
+    "primary_format": "FBX",
+    "secondary_format": "GLB",
+    "requires_environment_preflight": true,
+    "required_checks": ["import_without_errors", "model_prefab_non_null", "scale_axes_bounds", "pivots_hierarchy_names", "normals_tangents", "materials_textures_no_pink", "collider_discovery", "lod_group_assembly", "prefab_save", "edit_mode_smoke", "fixed_engine_render"]
+  }
+}

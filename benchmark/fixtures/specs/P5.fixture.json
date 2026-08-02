@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0.0",
+  "task_id": "P5",
+  "generator": "benchmark/fixtures/generate_fixture.py",
+  "scene": {
+    "unit_system": "METRIC",
+    "dirty_fixture_contract": true,
+    "objects": [
+      {"name": "PreserveMarker", "type": "cube", "location": [-1, 0, 0.5], "dimensions": [1, 1, 1], "custom_properties": {"benchmark_preserve": "do-not-change", "revision": 7}},
+      {"name": "UnrelatedCamera", "type": "camera", "location": [4, -5, 3]}
+    ],
+    "supplied_files": ["faulty_build.py"]
+  }
+}

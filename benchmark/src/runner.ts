@@ -1,0 +1,258 @@
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { join, resolve } from "node:path";
+import { createConnection } from "node:net";
+import { encode } from "gpt-tokenizer/encoding/o200k_base";
+import { appendJsonl, readJson, readJsonl, redact, writeJsonAtomic } from "./util.js";
+import { loadTasks, verifyFixtures } from "./fixtures.js";
+import { assertValidAttempt, assertValidPlan } from "./schema.js";
+import { assertPortClosed, chooseUniquePort, cleanupOwnedProcesses, createRunLayout, sanitizedEnvironment, spawnOwned, writeBlenderStartup } from "./isolation.js";
+import { buildAttemptRecord, currentFixtureHash } from "./record.js";
+import { detectPolicyViolations } from "./policy.js";
+import { gradeRun } from "./grading.js";
+import type { AttemptRecord, PlanCell, SeedPlan, TaskManifest, ToolEvent } from "./types.js";
+
+interface FrozenConfig {
+  versions: Record<string, string | null>;
+  model: { provider: string | null; id: string | null; effort: string | null; agent_cli: string | null };
+  prices: { sheet_version: string; input_per_million: number | null; cache_write_per_million: number | null; cache_read_per_million: number | null; output_per_million: number | null; reasoning_per_million: number | null };
+  limits: { max_dollars: number | null; max_wall_seconds: number | null; max_invalid_attempts: number; max_critical_failures: number; port_min: number; port_max: number };
+}
+interface ArmsConfig {
+  common: { base_instructions: string };
+  arms: Record<"axi" | "mcp", { condition_instructions: string }>;
+}
+export interface AgentResult {
+  answer: string;
+  transcript: string;
+  providerRecords: unknown[];
+  events: ToolEvent[];
+  usage: Partial<AttemptRecord["usage"]>;
+  cache: Partial<AttemptRecord["cache"]>;
+  agentTurns: number;
+  retries: number;
+  agentPid: number | null;
+}
+export interface AgentAdapter {
+  run(input: { cell: PlanCell; task: TaskManifest; runRoot: string; port: number; environment: NodeJS.ProcessEnv; baseInstructions: string; conditionInstructions: string }): Promise<AgentResult>;
+}
+
+export interface SweepResult {
+  attempted: number;
+  skipped_completed: number;
+  stopped_reason: string | null;
+  results_path: string;
+}
+
+export function frozenCost(config: FrozenConfig, usage: Partial<AttemptRecord["usage"]>, cache: Partial<AttemptRecord["cache"]>): number | null {
+  if (usage.api_cost_usd !== undefined && usage.api_cost_usd !== null) return usage.api_cost_usd;
+  const prices = config.prices;
+  const metrics = [usage.provider_input_tokens_uncached, cache.creation_tokens, cache.read_tokens, usage.provider_output_tokens, usage.provider_reasoning_tokens];
+  const rates = [prices.input_per_million, prices.cache_write_per_million, prices.cache_read_per_million, prices.output_per_million, prices.reasoning_per_million];
+  if (metrics.some((metric, index) => metric !== null && metric !== undefined && rates[index] === null)) return null;
+  if (metrics.every((metric) => metric === null || metric === undefined)) return null;
+  return metrics.reduce<number>((sum, metric, index) => sum + ((metric ?? 0) * (rates[index] ?? 0)) / 1_000_000, 0);
+}
+
+export function stopReason(records: AttemptRecord[], config: FrozenConfig, elapsedSeconds: number): string | null {
+  const spent = records.reduce((sum, record) => sum + (record.usage.api_cost_usd ?? 0), 0);
+  if (config.limits.max_dollars !== null && spent >= config.limits.max_dollars) return "dollar_ceiling";
+  if (config.limits.max_wall_seconds !== null && elapsedSeconds >= config.limits.max_wall_seconds) return "wall_time_ceiling";
+  if (records.filter((record) => record.validity.status === "invalid").length >= config.limits.max_invalid_attempts) return "invalid_attempt_ceiling";
+  if (records.filter((record) => record.outcome.critical_failure).length >= config.limits.max_critical_failures) return "critical_failure_ceiling";
+  return null;
+}
+
+async function exists(path: string): Promise<boolean> {
+  try {
+    await access(path, constants.F_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function waitForListener(port: number, timeoutMilliseconds: number): Promise<void> {
+  const deadline = Date.now() + timeoutMilliseconds;
+  while (Date.now() < deadline) {
+    const connected = await new Promise<boolean>((resolvePromise) => {
+      const socket = createConnection({ host: "127.0.0.1", port });
+      socket.setTimeout(200);
+      socket.once("connect", () => { socket.destroy(); resolvePromise(true); });
+      socket.once("timeout", () => { socket.destroy(); resolvePromise(false); });
+      socket.once("error", () => resolvePromise(false));
+    });
+    if (connected) return;
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 100));
+  }
+  throw new Error(`Benchmark Blender listener on port ${port} did not become ready`);
+}
+
+export class SyntheticAgentAdapter implements AgentAdapter {
+  constructor(private readonly fixtureRoot: string) {}
+
+  async run(input: Parameters<AgentAdapter["run"]>[0]): Promise<AgentResult> {
+    const scenarioPath = join(this.fixtureRoot, `${input.task.id}-${input.cell.arm}.json`);
+    const scenario = (await exists(scenarioPath))
+      ? await readJson<{ answer?: string; transcript?: string; events?: ToolEvent[]; usage?: Partial<AttemptRecord["usage"]>; files?: Record<string, string> }>(scenarioPath)
+      : { answer: "Synthetic run complete", transcript: "Synthetic offline benchmark transcript", events: [] as ToolEvent[], files: {} };
+    for (const [relativePath, content] of Object.entries(scenario.files ?? {})) {
+      const path = resolve(input.runRoot, relativePath);
+      if (!path.startsWith(`${resolve(input.runRoot)}/`)) throw new Error(`Synthetic artifact path escapes run: ${relativePath}`);
+      await mkdir(join(path, ".."), { recursive: true });
+      if (content === "$FIXTURE") {
+        const artifact = input.task.fixture.source_artifact;
+        if (!artifact) throw new Error("Task has no source fixture");
+        await import("node:fs/promises").then(({ copyFile }) => copyFile(join(input.runRoot, "fixture", artifact), path));
+      } else await writeFile(path, content, { mode: 0o600 });
+    }
+    return {
+      answer: scenario.answer ?? "Synthetic run complete",
+      transcript: scenario.transcript ?? "Synthetic transcript",
+      providerRecords: [],
+      events: scenario.events ?? [],
+      usage: scenario.usage ?? {},
+      cache: {},
+      agentTurns: 1,
+      retries: 0,
+      agentPid: null,
+    };
+  }
+}
+
+export async function runSweep(options: {
+  benchmarkRoot: string;
+  planPath: string;
+  runsRoot: string;
+  adapter: AgentAdapter;
+  blenderExecutable?: string;
+  addonPath?: string;
+  live?: boolean;
+  selectedCells?: string[];
+}): Promise<SweepResult> {
+  const benchmarkRoot = resolve(options.benchmarkRoot);
+  const plan = await readJson<SeedPlan>(options.planPath);
+  assertValidPlan(plan);
+  const config = await readJson<FrozenConfig>(join(benchmarkRoot, "config", "frozen.json"));
+  const arms = await readJson<ArmsConfig>(join(benchmarkRoot, "config", "arms.json"));
+  const baseInstructions = await readFile(join(benchmarkRoot, arms.common.base_instructions), "utf8");
+  const tasks = new Map((await loadTasks(benchmarkRoot)).map((task) => [task.id, task]));
+  const verification = await verifyFixtures(benchmarkRoot);
+  if (!verification.ok) throw new Error(`Fixtures invalid: ${verification.errors.join("; ")}`);
+  if (verification.index.entries.length !== 6) throw new Error("Fixture index must contain P1-P6");
+  if (plan.manifest_sha256 !== (await import("./fixtures.js").then(({ fixtureManifestHash }) => fixtureManifestHash(benchmarkRoot)))) throw new Error("Plan manifest hash does not match current task manifests");
+
+  await mkdir(options.runsRoot, { recursive: true });
+  const resultsPath = join(options.runsRoot, "results.jsonl");
+  const existing = await readJsonl<AttemptRecord>(resultsPath);
+  for (const record of existing) assertValidAttempt(record);
+  const completed = new Set(existing.map((record) => record.run_id));
+  const plannedIds = new Set(plan.cells.map((cell) => cell.cell_id));
+  const replacementTargets = new Set(plan.cells.map((cell) => cell.replacement_for).filter((value): value is string => value !== null));
+  for (const target of replacementTargets) {
+    const original = existing.find((record) => record.run_id === target);
+    if (!original) throw new Error(`Replacement references missing attempt ${target}`);
+    if (original.validity.status !== "invalid") throw new Error(`Replacement target ${target} is not infrastructure-invalid`);
+  }
+  for (const record of existing) {
+    if (!plannedIds.has(record.run_id) && record.validity.replacement_run_id === null) continue;
+    if (record.validity.replacement_run_id && !plannedIds.has(record.validity.replacement_run_id)) throw new Error(`Attempt ${record.run_id} links unknown replacement ${record.validity.replacement_run_id}`);
+  }
+  const campaignStart = Date.now();
+  let skipped = 0;
+  let attempted = 0;
+  let stoppedReason: string | null = null;
+
+  for (const cell of plan.cells) {
+    if (options.selectedCells && !options.selectedCells.includes(cell.cell_id)) continue;
+    if (completed.has(cell.cell_id)) {
+      skipped += 1;
+      continue;
+    }
+    stoppedReason = stopReason(await readJsonl<AttemptRecord>(resultsPath), config, (Date.now() - campaignStart) / 1000);
+    if (stoppedReason) break;
+    const task = tasks.get(cell.task_id);
+    if (!task) throw new Error(`Unknown task ${cell.task_id}`);
+    const entry = verification.index.entries.find((item) => item.task_id === task.id);
+    if (!entry) throw new Error(`Missing fixture index for ${task.id}`);
+    const layout = await createRunLayout(benchmarkRoot, options.runsRoot, cell.cell_id, task.id);
+    const port = await chooseUniquePort(config.limits.port_min, config.limits.port_max, cell.seed);
+    const environment = sanitizedEnvironment(layout, port);
+    const started = new Date();
+    let blenderPid: number | null = null;
+    let launchSeconds: number | null = null;
+    let agentResult: AgentResult;
+    try {
+      await assertPortClosed(port);
+      if (options.live) {
+        if (!options.addonPath) throw new Error("Live execution requires the exact pinned addon path");
+        const blenderExecutable = options.blenderExecutable ?? process.env.BLENDER_EXECUTABLE;
+        if (!blenderExecutable) throw new Error("Live execution requires the pinned Blender executable");
+        const startup = join(layout.workspace, "benchmark-startup.py");
+        await writeBlenderStartup(startup, port, options.addonPath);
+        const launchStarted = process.hrtime.bigint();
+        const blender = await spawnOwned(layout.processRegistry, cell.cell_id, "blender", blenderExecutable, ["--factory-startup", task.fixture.source_artifact ? join(layout.fixture, task.fixture.source_artifact) : "", "--python", startup], {
+          cwd: layout.workspace,
+          env: environment,
+          port,
+          stdoutPath: join(layout.logs, "blender.stdout.log"),
+          stderrPath: join(layout.logs, "blender.stderr.log"),
+        });
+        blenderPid = blender.pid ?? null;
+        await waitForListener(port, 45_000);
+        launchSeconds = Number(process.hrtime.bigint() - launchStarted) / 1e9;
+      }
+      agentResult = await options.adapter.run({ cell, task, runRoot: layout.root, port, environment, baseInstructions, conditionInstructions: arms.arms[cell.arm].condition_instructions });
+    } catch (error) {
+      agentResult = { answer: `Agent adapter crashed: ${(error as Error).message}`, transcript: String((error as Error).stack ?? error), providerRecords: [], events: [], usage: {}, cache: {}, agentTurns: 0, retries: 0, agentPid: null };
+    }
+    await cleanupOwnedProcesses(layout.processRegistry);
+    const ended = new Date();
+    const secrets = Object.entries(process.env).filter(([key]) => /key|token|secret|password/iu.test(key)).map(([, value]) => value ?? "");
+    const safeAnswer = String(redact(agentResult.answer, secrets));
+    const safeTranscript = String(redact(agentResult.transcript, secrets));
+    const safeEvents = redact(agentResult.events, secrets) as ToolEvent[];
+    await writeFile(join(layout.transcript, "answer.txt"), `${safeAnswer}\n`, { mode: 0o600 });
+    await writeFile(join(layout.transcript, "full.txt"), `${safeTranscript}\n`, { mode: 0o600 });
+    await writeFile(join(layout.transcript, "provider.jsonl"), agentResult.providerRecords.map((record) => JSON.stringify(redact(record, secrets))).join("\n") + (agentResult.providerRecords.length ? "\n" : ""), { mode: 0o600 });
+    await writeFile(join(layout.transcript, "interface.jsonl"), safeEvents.map((event) => JSON.stringify(event)).join("\n") + (safeEvents.length ? "\n" : ""), { mode: 0o600 });
+    const grade = await gradeRun({ benchmarkRoot, runRoot: layout.root, runId: cell.cell_id, task, arm: cell.arm, blenderExecutable: options.blenderExecutable, fixtureHashBefore: entry.artifact_sha256 });
+    if (detectPolicyViolations(cell.arm, safeEvents).length && grade.status !== "policy_violation") throw new Error("Policy grading inconsistency");
+    const fixtureAfter = await currentFixtureHash(layout.root, task);
+    const cost = frozenCost(config, agentResult.usage, agentResult.cache);
+    const record = await buildAttemptRecord({
+      cell,
+      task,
+      runId: cell.cell_id,
+      runRoot: layout.root,
+      fixtureHashBefore: entry.artifact_sha256,
+      fixtureHashAfter: fixtureAfter,
+      baseInstructions,
+      conditionInstructions: arms.arms[cell.arm].condition_instructions,
+      interfaceSurface: arms.arms[cell.arm].condition_instructions,
+      fullTranscript: safeTranscript,
+      events: safeEvents,
+      answer: safeAnswer,
+      grade,
+      startedAt: started.toISOString(),
+      endedAt: ended.toISOString(),
+      wallSeconds: (ended.getTime() - started.getTime()) / 1000,
+      port,
+      versions: { ...config.versions, model_provider: config.model.provider, model_id: config.model.id, effort: config.model.effort, agent_cli: config.model.agent_cli },
+      usage: { ...agentResult.usage, api_cost_usd: cost, pricing_source: cost === null ? null : agentResult.usage.api_cost_usd !== null && agentResult.usage.api_cost_usd !== undefined ? "provider-reported" : config.prices.sheet_version },
+      cache: agentResult.cache,
+      timing: { blender_launch_seconds: launchSeconds },
+      blenderPid,
+      agentPid: agentResult.agentPid,
+      processLogPaths: ["logs/agent.stdout.log", "logs/agent.stderr.log", "logs/blender.stdout.log", "logs/blender.stderr.log"],
+      offlineTokenCount: (text) => encode(text).length,
+    });
+    record.trajectory.agent_turns = agentResult.agentTurns;
+    record.trajectory.retries = agentResult.retries;
+    assertValidAttempt(record);
+    await appendJsonl(resultsPath, record);
+    await writeJsonAtomic(join(layout.root, "attempt.json"), record);
+    attempted += 1;
+  }
+  return { attempted, skipped_completed: skipped, stopped_reason: stoppedReason, results_path: resultsPath };
+}

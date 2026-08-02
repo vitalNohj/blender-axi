@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0.0",
+  "id": "P3",
+  "version": "1.0.0",
+  "category": "procedural_prop",
+  "capability_scope": "shared",
+  "timeout_class": "standard",
+  "timeout_seconds": 480,
+  "prompt": "Using the supplied empty metric scene and render rig, create a game-ready sci-fi supply crate with overall dimensions 1.2 x 0.8 x 0.7 meters. Use a bottom-center CrateRoot hierarchy, no more than 2,500 triangles and three material slots, a beveled readable silhouette, and a named simple convex collider proxy COLLIDER_Crate. Apply transforms and use no negative scale. Save output/crate.blend, export output/crate.glb, and render output/crate-front.png, output/crate-side.png, and output/crate-three-quarter.png. Report the work performed and relative artifact paths.",
+  "fixture": {"contract": "fixtures/specs/P3.fixture.json", "source_artifact": "prop-empty.blend", "immutable_sha256": "54a3a4f23f4a8a97eccb484fb36111115edc36a7f147e84f521cb4d35bbd4c1a", "read_only": true},
+  "required_artifacts": [{"kind": "blend", "path": "output/crate.blend"}, {"kind": "glb", "path": "output/crate.glb"}, {"kind": "render", "path": "output/crate-front.png"}, {"kind": "render", "path": "output/crate-side.png"}, {"kind": "render", "path": "output/crate-three-quarter.png"}],
+  "deterministic_oracles": [
+    {"id": "artifacts-present", "kind": "artifact", "required": true, "points": 10},
+    {"id": "reopens", "kind": "reopen", "required": true, "points": 10},
+    {"id": "crate-structure", "kind": "scene", "required": true, "points": 50, "params": {"root": "CrateRoot", "bounds": [1.2, 0.8, 0.7], "bounds_tolerance": 0.02, "bottom_center_pivot": true, "max_triangles": 2500, "max_material_slots": 3, "required_object": "COLLIDER_Crate", "collider_convex": true, "unit_scale": true, "no_negative_scale": true}},
+    {"id": "glb-valid", "kind": "gltf", "required": true, "points": 20, "params": {"max_errors": 0}},
+    {"id": "glb-roundtrip", "kind": "fbx_roundtrip", "required": true, "points": 10, "params": {"format": "glb", "required_mesh": "CrateRoot"}}
+  ]
+}

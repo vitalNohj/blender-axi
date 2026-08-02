@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0.0",
+  "task_id": "P2",
+  "generator": "benchmark/fixtures/generate_fixture.py",
+  "scene": {
+    "unit_system": "METRIC",
+    "objects": [
+      {"name": "Base", "type": "cylinder", "location": [0, 0, 0.2], "dimensions": [1.2, 1.2, 0.4], "material": "BeaconSteel"},
+      {"name": "Mast", "type": "cube", "location": [0, 0, 1.4], "dimensions": [0.18, 0.18, 2.0], "material": "BeaconSteel"},
+      {"name": "Lamp", "type": "uv_sphere", "location": [0, 0, 2.55], "dimensions": [0.5, 0.5, 0.5], "material": "LampCold"},
+      {"name": "DecoySibling", "type": "cube", "location": [2.5, 0, 0.25], "dimensions": [0.5, 0.5, 0.5], "material": "DecoyRed"},
+      {"name": "BenchmarkCamera", "type": "camera", "location": [4, -6, 3], "rotation_degrees": [70, 0, 34]},
+      {"name": "BenchmarkKey", "type": "area_light", "location": [3, -4, 5], "energy": 1000}
+    ]
+  }
+}

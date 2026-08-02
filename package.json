@@ -22,10 +22,17 @@
   ],
   "type": "module",
   "bin": {
-    "blender-axi": "dist/bin/blender-axi.js"
+    "blender-axi": "dist/bin/blender-axi.js",
+    "blender-axi-bench": "dist/benchmark/bin/blender-axi-bench.js"
   },
   "files": [
     "dist/**/*.js",
+    "benchmark/config",
+    "benchmark/docs",
+    "benchmark/fixtures/*.py",
+    "benchmark/fixtures/tasks",
+    "benchmark/fixtures/specs",
+    "benchmark/schemas",
     "skills/blender-axi",
     "README.md",
     "LICENSE"
@@ -34,6 +41,8 @@
     "build": "tsc",
     "build:skill": "tsx scripts/build-skill.ts",
     "test": "npm run build:skill -- --check && vitest run",
+    "benchmark": "tsx benchmark/bin/blender-axi-bench.ts",
+    "benchmark:test": "vitest run benchmark/tests",
     "test:watch": "vitest",
     "dev": "tsx bin/blender-axi.ts",
     "prepack": "npm run build && npm run build:skill -- --check"
@@ -47,6 +56,8 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "gltf-validator": "^2.0.0-dev.3.10",
+    "gpt-tokenizer": "^3.4.0",
     "tsx": "^4.0.0",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"

@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0.0",
+  "id": "P1",
+  "version": "1.0.0",
+  "category": "micro_operation",
+  "capability_scope": "shared",
+  "timeout_class": "micro",
+  "timeout_seconds": 180,
+  "prompt": "Open the supplied micro.blend. Rename SourceCube to BenchmarkCrate. Set its world dimensions to exactly (2.0, 1.0, 0.5) meters, place its bottom at Z=0, and apply scale so scale is (1,1,1). Assign exactly one material named CrateBlue with sRGB base color #1769AA. Do not alter the camera or light. Save the result as output/micro-result.blend. Report the work performed and relative artifact path.",
+  "fixture": {
+    "contract": "fixtures/specs/P1.fixture.json",
+    "source_artifact": "micro.blend",
+    "immutable_sha256": "15b2443a27e3076fa5a3db7792022cde4f338f76273a2ba86cc77a03e4506235",
+    "read_only": true
+  },
+  "required_artifacts": [{"kind": "blend", "path": "output/micro-result.blend"}, {"kind": "oracle_json", "path": "oracles/grade.json"}],
+  "deterministic_oracles": [
+    {"id": "blend-present", "kind": "artifact", "required": true, "points": 5, "params": {"path": "output/micro-result.blend"}},
+    {"id": "reopens", "kind": "reopen", "required": true, "points": 15},
+    {"id": "crate-structure", "kind": "scene", "required": true, "points": 55, "params": {"object": "BenchmarkCrate", "count": 1, "dimensions": [2, 1, 0.5], "dimension_tolerance": 0.005, "min_z": 0, "min_z_tolerance": 0.002, "scale": [1, 1, 1], "material": "CrateBlue", "base_color_srgb_hex": "#1769AA", "color_tolerance": 0.01}},
+    {"id": "camera-light-preserved", "kind": "preservation", "required": true, "points": 25, "params": {"objects": ["BenchmarkCamera", "BenchmarkKey"], "fields": ["matrix_world"]}}
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0.0",
+  "task_id": "P1",
+  "generator": "benchmark/fixtures/generate_fixture.py",
+  "scene": {
+    "unit_system": "METRIC",
+    "objects": [
+      {"name": "SourceCube", "type": "cube", "location": [0, 0, 0.5], "dimensions": [1, 1, 1]},
+      {"name": "BenchmarkCamera", "type": "camera", "location": [4, -5, 3], "rotation_degrees": [67, 0, 38]},
+      {"name": "BenchmarkKey", "type": "area_light", "location": [2, -3, 4], "energy": 800}
+    ]
+  }
+}
