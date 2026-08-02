@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0.0",
+  "id": "P2",
+  "version": "1.0.0",
+  "category": "iterative_edit",
+  "capability_scope": "shared",
+  "timeout_class": "standard",
+  "timeout_seconds": 480,
+  "prompt": "Open the supplied edit.blend and inspect the named beacon. Make Mast exactly 30% taller while keeping its bottom and Base fixed. Change Lamp to amber emission with sRGB color #FF9D2E and emission strength 8. Preserve every other object, material, world, and render setting. Render the standardized front camera to output/edit-front.png and save output/edit-result.blend. Report the work performed and relative artifact paths.",
+  "fixture": {"contract": "fixtures/specs/P2.fixture.json", "source_artifact": "edit.blend", "immutable_sha256": "1a23b7073104d98941e9749de0d269b45337689e1573c80ae6c713a502e9a4af", "read_only": true},
+  "required_artifacts": [{"kind": "blend", "path": "output/edit-result.blend"}, {"kind": "render", "path": "output/edit-front.png"}, {"kind": "oracle_json", "path": "oracles/grade.json"}],
+  "deterministic_oracles": [
+    {"id": "artifacts-present", "kind": "artifact", "required": true, "points": 10},
+    {"id": "reopens", "kind": "reopen", "required": true, "points": 10},
+    {"id": "mast-height", "kind": "scene", "required": true, "points": 30, "params": {"object": "Mast", "height_ratio": 1.3, "bottom_unchanged": true, "tolerance": 0.005}},
+    {"id": "lamp-emission", "kind": "scene", "required": true, "points": 20, "params": {"object": "Lamp", "emission_srgb_hex": "#FF9D2E", "strength": 8, "tolerance": 0.01}},
+    {"id": "unrelated-preserved", "kind": "preservation", "required": true, "points": 30, "params": {"allow_changes": ["Mast", "Lamp"], "preserve_all_others": true}}
+  ]
+}

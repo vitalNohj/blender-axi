@@ -2,6 +2,8 @@
 
 Token-efficient agent CLI for driving Blender through its stock [BlenderMCP](https://github.com/ahujasid/blender-mcp) v1.2 addon.
 
+The repository also contains a separate, executable [blender-axi versus BlenderMCP benchmark package](benchmark/docs/BENCHMARK.md). Its fixture, planning, isolation, grading, blinded-scoring, and analysis runtime does not change the production CLI. Live benchmark execution is an explicit, pin-gated command and is never part of normal tests or builds.
+
 `blender-axi` speaks the addon's raw TCP protocol directly. There is no MCP server to register, no `uvx` process to keep alive, and no patched addon — just a command you run when you actually need Blender.
 
 ## Why a CLI instead of an MCP server

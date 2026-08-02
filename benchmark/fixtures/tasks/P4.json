@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0.0",
+  "id": "P4",
+  "version": "1.0.0",
+  "category": "character_enemy",
+  "capability_scope": "shared",
+  "timeout_class": "extended",
+  "timeout_seconds": 720,
+  "prompt": "Using the supplied empty metric scene and neutral render rig, make a lightweight stylized non-royal quadrupedal enemy scout. Give it a clear +Y forward direction, a low alert silhouette, a visibly named SensorHead and two visibly named Propulsion modules. Use 4,000-12,000 triangles, at most five materials, deterministic names under EnemyScoutRoot, and no rig. Ground it at Z=0 with applied transforms and no negative scale. Save output/enemy-scout.blend, export output/enemy-scout.glb, and render front, side, and three-quarter views as output/enemy-front.png, output/enemy-side.png, and output/enemy-three-quarter.png. Report the work performed and relative artifact paths.",
+  "fixture": {"contract": "fixtures/specs/P4.fixture.json", "source_artifact": "enemy-empty.blend", "immutable_sha256": "37b6e3970fab7b5d5311310ff91641d282ca504245a4ac49dad45d38c0d68d48", "read_only": true},
+  "required_artifacts": [{"kind": "blend", "path": "output/enemy-scout.blend"}, {"kind": "glb", "path": "output/enemy-scout.glb"}, {"kind": "render", "path": "output/enemy-front.png"}, {"kind": "render", "path": "output/enemy-side.png"}, {"kind": "render", "path": "output/enemy-three-quarter.png"}],
+  "deterministic_oracles": [
+    {"id": "artifacts-present", "kind": "artifact", "required": true, "points": 10},
+    {"id": "reopens", "kind": "reopen", "required": true, "points": 10},
+    {"id": "enemy-structure", "kind": "scene", "required": true, "points": 55, "params": {"root": "EnemyScoutRoot", "required_name_patterns": ["SensorHead", "Propulsion"], "minimum_propulsion_count": 2, "forward_axis": "+Y", "ground_z": 0, "ground_tolerance": 0.02, "min_triangles": 4000, "max_triangles": 12000, "max_materials": 5, "no_armature": true, "unit_scale": true, "no_negative_scale": true}},
+    {"id": "glb-valid", "kind": "gltf", "required": true, "points": 20, "params": {"max_errors": 0}},
+    {"id": "camera-no-clipping", "kind": "scene", "required": true, "points": 5, "params": {"renders_inside_frame": true}}
+  ]
+}

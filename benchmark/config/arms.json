@@ -1,0 +1,45 @@
+{
+  "schema_version": "1.0.0",
+  "common": {
+    "base_instructions": "config/base-instructions.txt",
+    "allowed_common_tools": ["read_workspace", "write_workspace"],
+    "denied_capabilities": [
+      "web_search",
+      "browser",
+      "external_asset_download",
+      "gui_automation",
+      "direct_addon_tcp",
+      "ambient_user_skills",
+      "ambient_hooks",
+      "ambient_mcps",
+      "blender_craft_toolkit",
+      "user_files",
+      "prior_runs"
+    ],
+    "environment_allowlist": [
+      "PATH",
+      "HOME",
+      "TMPDIR",
+      "BLENDER_AXI_PORT",
+      "BLENDER_AXI_STATE_DIR",
+      "BLENDER_MCP_DISABLE_TELEMETRY",
+      "BENCHMARK_RUN_DIR",
+      "BENCHMARK_WORKSPACE",
+      "BENCHMARK_OUTPUT"
+    ]
+  },
+  "arms": {
+    "axi": {
+      "condition_instructions": "Use only shell commands through the pinned blender-axi executable and its normal static skill or command help. Do not use MCP tools, BlenderMCP server commands, Python socket clients, or direct addon protocol helpers.",
+      "allowed_interfaces": ["shell"],
+      "allowed_shell_executables": ["blender-axi"],
+      "forbidden_tool_patterns": ["mcp__", "execute_blender_code", "get_scene_info", "get_object_info", "get_viewport_screenshot", "uvx", "blender-mcp"]
+    },
+    "mcp": {
+      "condition_instructions": "Use only the pinned stock BlenderMCP tools exposed by this session. Do not run blender-axi, shell Blender helpers, Python socket clients, or direct addon protocol helpers.",
+      "allowed_interfaces": ["mcp"],
+      "allowed_mcp_server": "blender",
+      "forbidden_tool_patterns": ["blender-axi", "BLENDER_AXI_PORT", "socket", "nc ", "socat", "addon.py"]
+    }
+  }
+}

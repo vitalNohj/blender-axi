@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0.0",
+  "task_id": "P3",
+  "generator": "benchmark/fixtures/generate_fixture.py",
+  "scene": {
+    "unit_system": "METRIC",
+    "collections": ["Asset", "RenderRig"],
+    "objects": [
+      {"name": "BenchmarkCamera", "type": "camera", "collection": "RenderRig", "location": [3.5, -5, 2.8]},
+      {"name": "BenchmarkKey", "type": "area_light", "collection": "RenderRig", "location": [3, -4, 5], "energy": 1000},
+      {"name": "BenchmarkFill", "type": "area_light", "collection": "RenderRig", "location": [-3, -1, 2], "energy": 450}
+    ]
+  }
+}

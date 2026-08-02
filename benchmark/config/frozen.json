@@ -1,0 +1,73 @@
+{
+  "schema_version": "1.0.0",
+  "study_id": "blender-axi-vs-blendermcp-1",
+  "versions": {
+    "blender": "5.2.0 LTS",
+    "blender_executable_sha256": "60ba7a9b6743f7acf101274361fa76409e382ae07cd2007ce07dea30f6b129f2",
+    "addon": "BlenderMCP-v1.2",
+    "addon_sha256": "ca6955bb584d78e229f020a8b9d7011440adc6e94dab0ac8e01ab2794db19dc0",
+    "blender_axi_revision": "099875073fa2b072ebc2e04cc92d335adb2c744b",
+    "blender_mcp_server": "1.6.5",
+    "blender_mcp_revision": "e3ece087adecce4242d4dc3e4db28c33010b51c4",
+    "gltf_validator": "2.0.0-dev.3.10",
+    "offline_tokenizer": null,
+    "node": "22",
+    "python": "3.11",
+    "unity_editor": null,
+    "unity_pipeline": "URP",
+    "unity_fixture_contract": "unity-urp-fbx-v1"
+  },
+  "model": {
+    "provider": null,
+    "id": null,
+    "effort": null,
+    "agent_cli": null
+  },
+  "prices": {
+    "sheet_version": "unapproved-2026-07-30",
+    "currency": "USD",
+    "input_per_million": null,
+    "cache_write_per_million": null,
+    "cache_read_per_million": null,
+    "output_per_million": null,
+    "reasoning_per_million": null
+  },
+  "limits": {
+    "max_dollars": null,
+    "max_wall_seconds": null,
+    "max_invalid_attempts": 3,
+    "max_critical_failures": 1,
+    "port_min": 19000,
+    "port_max": 29999,
+    "listener_ready_seconds": 45,
+    "process_exit_seconds": 15
+  },
+  "margins": {
+    "functional_success_percentage_points": -10,
+    "deterministic_score_points": -5,
+    "visual_score_points": -5,
+    "unity_score_points": -5,
+    "input_token_ratio_upper": 0.7,
+    "api_cost_ratio_upper": 0.8
+  },
+  "bootstrap": {
+    "samples": 10000,
+    "confidence": 0.95,
+    "seed": 872341
+  },
+  "visual": {
+    "minimum_raters": 3,
+    "calibration_anchor_count": 6,
+    "duplicate_fraction": 0.1,
+    "minimum_agreement": 0.7,
+    "rubric": {
+      "brief_adherence": 20,
+      "silhouette_role_readability": 20,
+      "form_proportion": 15,
+      "material_value_readability": 15,
+      "finish_defect_control": 15,
+      "composition_framing": 10,
+      "distinctiveness": 5
+    }
+  }
+}

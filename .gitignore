@@ -15,5 +15,23 @@ dist/
 *.gltf
 render-*.png
 
+# Benchmark run data and generated heavyweight fixtures
+benchmark/fixtures/generated/
+benchmark/fixtures/manifest.json
+benchmark/runs/
+benchmark/results/
+benchmark/scoring/
+benchmark/reports/
+benchmark/**/*.blend
+benchmark/**/*.blend[0-9]*
+benchmark/**/*.fbx
+benchmark/**/*.glb
+benchmark/**/*.png
+benchmark/**/Library/
+benchmark/**/Temp/
+benchmark/**/Logs/
+benchmark/**/Obj/
+benchmark/**/UserSettings/
+
 # OS and editor cruft
 .DS_Store

@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0.0",
+  "task_id": "P6",
+  "generator": "benchmark/fixtures/generate_fixture.py",
+  "scene": {
+    "unit_system": "METRIC",
+    "collections": ["Sentry", "RenderRig"],
+    "objects": [
+      {"name": "BenchmarkCamera", "type": "camera", "collection": "RenderRig", "location": [4, -6, 3]},
+      {"name": "BenchmarkKey", "type": "area_light", "collection": "RenderRig", "location": [3, -4, 5], "energy": 1000}
+    ]
+  },
+  "unity_contract": {
+    "version": "unity-urp-fbx-v1",
+    "editor": null,
+    "pipeline": "URP",
+    "primary_import": "FBX",
+    "secondary_validation": "GLB",
+    "project_generation": "Generate a fresh minimal Unity project only after an exact editor patch and URP package lock are approved. Never commit Library, Temp, Logs, Obj, UserSettings, or generated project caches."
+  }
+}
