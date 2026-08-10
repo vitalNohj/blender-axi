@@ -4,7 +4,7 @@ This package implements the executable benchmark specified by the 2026-07-30 Ble
 
 ## Safety boundary
 
-The benchmark owns only directories passed through `--runs`, process IDs written to each run's `owned-processes.json`, and unique ports selected from the frozen benchmark range. It never searches for, kills, or modifies arbitrary Blender processes. Port 9876 is treated as external and the preflight refuses when it has a listener. Fixture source files are copied read-only. Each cell gets a new run directory, HOME, state directory, workspace, output, transcript, logs, artifacts, process registry, and port.
+The benchmark owns only directories passed through `--runs`, process IDs written to each run's `owned-processes.json`, and unique ports selected from the frozen benchmark range. It never searches for, kills, or modifies arbitrary Blender processes. Port 9876 is treated as external and the preflight refuses when it has a listener; each cell exports `BLENDER_HOST`/`BLENDER_PORT` so the pinned BlenderMCP server addresses that cell's isolated Blender instead of its own 9876 default. Provider processes are spawned as their own process group and torn down by group with SIGKILL escalation, so no wrapper, MCP server, or Blender process survives success, failure, interrupt, or timeout. Fixture source files are copied read-only. Each cell gets a new run directory, HOME, state directory, workspace, output, transcript, logs, artifacts, process registry, and port.
 
 Do not put a primary checkout, user Blender file, or shared Unity project under `--runs`. Never point `BLENDER_MCP_ADDON_PATH` at a modified addon. Generated `.blend`, `.fbx`, `.glb`, render, run, report, scorer, and Unity cache data is ignored by git.
 
@@ -14,9 +14,10 @@ Do not put a primary checkout, user Blender file, or shared Unity project under 
 2. Build: `npm run build`.
 3. Install Blender 5.2.0 LTS. Set `BLENDER_EXECUTABLE` if it is not `/Applications/Blender.app/Contents/MacOS/Blender`.
 4. Put the unmodified BlenderMCP v1.2 `addon.py` outside this repository and set `BLENDER_MCP_ADDON_PATH`. Its required SHA-256 is `ca6955bb584d78e229f020a8b9d7011440adc6e94dab0ac8e01ab2794db19dc0`.
-5. Review `benchmark/config/frozen.json`. Before live execution, freeze exact provider, model snapshot, effort, agent CLI, prices, dollar limit, wall limit, and exact Unity patch. Do not replace nulls with invented zeroes.
-6. Configure a provider-specific wrapper in `benchmark/config/agent-command.json`. It must start a fresh non-persistent session, disable ambient skills/hooks/MCPs, accept the full prompt on stdin, expose only the selected arm, emit provider JSONL on stdout, and preserve provider usage fields as null when unavailable.
-7. For P6, select an exact Unity Editor patch and URP package lock. FBX is the primary Unity artifact; GLB is the portable secondary artifact. Build a fresh minimal project generator that satisfies the `unity-urp-fbx-v1` contract. Unity is an explicit preflight requirement, not inferred from Blender or GLB validity.
+5. Review `benchmark/config/frozen.json`. Before live execution, freeze exact provider, model snapshot, effort, agent CLI, campaign wall limit, and exact Unity patch. Do not replace nulls with invented zeroes. Dollar cost is excluded from this benchmark: no rate sheet and no dollar ceiling are configured, `api_cost_usd` stays null unless the provider reports a strictly positive cost, and a catalog price of zero is never treated as free.
+6. Stage every pinned toolchain the arms invoke outside `/Users/`: the transcript policy denies any tool event containing `/Users/`, and an agent that resolves a binary with `command -v` embeds its absolute path in later calls. Putting the directory on `PATH` is not sufficient.
+7. Configure a provider-specific wrapper in `benchmark/config/agent-command.json`. It must start a fresh non-persistent session, disable ambient skills/hooks/MCPs, accept the full prompt on stdin, expose only the selected arm, emit provider JSONL on stdout, and preserve provider usage fields as null when unavailable.
+8. For P6, select an exact Unity Editor patch and URP package lock. FBX is the primary Unity artifact; GLB is the portable secondary artifact. Build a fresh minimal project generator that satisfies the `unity-urp-fbx-v1` contract. Unity is an explicit preflight requirement, not inferred from Blender or GLB validity.
 
 ## Fixtures
 
@@ -84,7 +85,7 @@ npm run benchmark -- run selected \
 
 The runner appends one complete record to `results.jsonl` only after transcript capture and grading. On interruption, run the same command again. Existing `run_id` values are skipped, no duplicate cell is added, and incomplete directories without a durable record are preserved for inspection rather than silently treated as complete. Invalid attempts remain in JSONL. An infrastructure-invalid replacement must use a new run ID and populate `replacement_for`; the original record is never edited or removed.
 
-The runner stops before configured dollar, wall-time, invalid-attempt, or critical-failure ceilings. Campaign execution is sequential. A cross-arm policy violation invalidates the attempt and contributes to the invalid ceiling.
+The runner stops before the configured wall-time, invalid-attempt, or critical-failure ceilings. There is no dollar ceiling because cost is excluded; the campaign wall limit is the binding brake. Campaign execution is sequential. A cross-arm policy violation invalidates the attempt and contributes to the invalid ceiling.
 
 ## Run artifact layout
 

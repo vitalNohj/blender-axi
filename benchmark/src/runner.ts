@@ -42,16 +42,7 @@ interface FrozenConfig {
 		effort: string | null;
 		agent_cli: string | null;
 	};
-	prices: {
-		sheet_version: string;
-		input_per_million: number | null;
-		cache_write_per_million: number | null;
-		cache_read_per_million: number | null;
-		output_per_million: number | null;
-		reasoning_per_million: number | null;
-	};
 	limits: {
-		max_dollars: number | null;
 		max_wall_seconds: number | null;
 		max_invalid_attempts: number;
 		max_critical_failures: number;
@@ -76,6 +67,7 @@ export interface AgentResult {
 	agentTurns: number;
 	retries: number;
 	agentPid: number | null;
+	timedOut?: boolean;
 }
 export interface AgentAdapter {
 	run(input: {
@@ -124,42 +116,18 @@ export function infrastructureFailure(
 	};
 }
 
-export function frozenCost(
-	config: FrozenConfig,
+// Dollar cost is excluded from this benchmark: the pinned provider does not
+// report a usable measured cost. Only a genuine provider-reported figure may
+// populate api_cost_usd. A catalog price of 0 means "not reported", not "free",
+// and a frozen rate-sheet estimate is a projection rather than a measurement, so
+// neither is ever presented as measured cost. Token fields and wall time carry
+// the efficiency signal instead.
+export function measuredCost(
 	usage: Partial<AttemptRecord["usage"]>,
-	cache: Partial<AttemptRecord["cache"]>,
 ): number | null {
-	if (usage.api_cost_usd !== undefined && usage.api_cost_usd !== null)
-		return usage.api_cost_usd;
-	const prices = config.prices;
-	const metrics = [
-		usage.provider_input_tokens_uncached,
-		cache.creation_tokens,
-		cache.read_tokens,
-		usage.provider_output_tokens,
-		usage.provider_reasoning_tokens,
-	];
-	const rates = [
-		prices.input_per_million,
-		prices.cache_write_per_million,
-		prices.cache_read_per_million,
-		prices.output_per_million,
-		prices.reasoning_per_million,
-	];
-	if (
-		metrics.some(
-			(metric, index) =>
-				metric !== null && metric !== undefined && rates[index] === null,
-		)
-	)
-		return null;
-	if (metrics.every((metric) => metric === null || metric === undefined))
-		return null;
-	return metrics.reduce<number>(
-		(sum, metric, index) =>
-			sum + ((metric ?? 0) * (rates[index] ?? 0)) / 1_000_000,
-		0,
-	);
+	const reported = usage.api_cost_usd;
+	if (typeof reported !== "number" || !Number.isFinite(reported)) return null;
+	return reported > 0 ? reported : null;
 }
 
 export function stopReason(
@@ -167,12 +135,8 @@ export function stopReason(
 	config: FrozenConfig,
 	elapsedSeconds: number,
 ): string | null {
-	const spent = records.reduce(
-		(sum, record) => sum + (record.usage.api_cost_usd ?? 0),
-		0,
-	);
-	if (config.limits.max_dollars !== null && spent >= config.limits.max_dollars)
-		return "dollar_ceiling";
+	// No dollar ceiling: cost is excluded from this benchmark, so the campaign
+	// wall-time limit is the binding spend brake alongside the validity ceilings.
 	if (
 		config.limits.max_wall_seconds !== null &&
 		elapsedSeconds >= config.limits.max_wall_seconds
@@ -274,6 +238,7 @@ export class SyntheticAgentAdapter implements AgentAdapter {
 			agentTurns: 1,
 			retries: 0,
 			agentPid: null,
+			timedOut: false,
 		};
 	}
 }
@@ -484,6 +449,7 @@ export async function runSweep(options: {
 				agentTurns: 0,
 				retries: 0,
 				agentPid: null,
+				timedOut: false,
 			};
 		}
 		await cleanupOwnedProcesses(layout.processRegistry);
@@ -535,7 +501,7 @@ export async function runSweep(options: {
 		)
 			throw new Error("Policy grading inconsistency");
 		const fixtureAfter = await currentFixtureHash(layout.root, task);
-		const cost = frozenCost(config, agentResult.usage, agentResult.cache);
+		const cost = measuredCost(agentResult.usage);
 		const record = await buildAttemptRecord({
 			cell,
 			task,
@@ -565,16 +531,13 @@ export async function runSweep(options: {
 			usage: {
 				...agentResult.usage,
 				api_cost_usd: cost,
-				pricing_source:
-					cost === null
-						? null
-						: agentResult.usage.api_cost_usd !== null &&
-								agentResult.usage.api_cost_usd !== undefined
-							? "provider-reported"
-							: config.prices.sheet_version,
+				pricing_source: cost === null ? null : "provider-reported",
 			},
 			cache: agentResult.cache,
-			timing: { blender_launch_seconds: launchSeconds },
+			timing: {
+				blender_launch_seconds: launchSeconds,
+				timed_out: agentResult.timedOut ?? false,
+			},
 			blenderPid,
 			agentPid: agentResult.agentPid,
 			processLogPaths: [

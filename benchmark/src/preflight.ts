@@ -8,7 +8,6 @@ import { readJson, sha256File } from "./util.js";
 interface FrozenConfig {
 	versions: Record<string, string | null>;
 	model: Record<string, string | null>;
-	prices: Record<string, string | number | null>;
 	limits: Record<string, number | null>;
 }
 interface AgentCommand {
@@ -173,21 +172,14 @@ export async function preflightChecks(
 			),
 			detail: "Exact provider/model/effort/agent pin required",
 		});
-		checks.push({
-			id: "price-sheet",
-			ok: Object.entries(config.prices)
-				.filter(([key]) => key.endsWith("per_million"))
-				.every(([, value]) => typeof value === "number"),
-			detail: "Frozen non-null price sheet required",
-		});
+		// Dollar cost is excluded from this benchmark, so no rate sheet and no
+		// dollar ceiling are gated here. The campaign wall limit is the brake.
 		checks.push({
 			id: "budget",
 			ok:
-				typeof config.limits.max_dollars === "number" &&
-				config.limits.max_dollars > 0 &&
 				typeof config.limits.max_wall_seconds === "number" &&
 				config.limits.max_wall_seconds > 0,
-			detail: "Captain-approved dollar and wall ceilings required",
+			detail: "Captain-approved campaign wall ceiling required",
 		});
 		checks.push({
 			id: "agent-command",

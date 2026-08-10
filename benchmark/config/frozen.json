@@ -23,18 +23,8 @@
     "effort": null,
     "agent_cli": null
   },
-  "prices": {
-    "sheet_version": "unapproved-2026-07-30",
-    "currency": "USD",
-    "input_per_million": null,
-    "cache_write_per_million": null,
-    "cache_read_per_million": null,
-    "output_per_million": null,
-    "reasoning_per_million": null
-  },
   "limits": {
-    "max_dollars": null,
-    "max_wall_seconds": null,
+    "max_wall_seconds": 2700,
     "max_invalid_attempts": 3,
     "max_critical_failures": 1,
     "port_min": 19000,
@@ -69,5 +59,9 @@
       "composition_framing": 10,
       "distinctiveness": 5
     }
+  },
+  "cost_policy": {
+    "measured": false,
+    "reason": "The pinned provider does not report usable measured cost. A catalog price of 0 means 'not reported', not 'free'. Token fields and wall time carry the efficiency signal; api_cost_usd stays null unless the provider reports a strictly positive cost."
   }
 }

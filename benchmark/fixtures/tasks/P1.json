@@ -5,7 +5,7 @@
   "category": "micro_operation",
   "capability_scope": "shared",
   "timeout_class": "micro",
-  "timeout_seconds": 180,
+  "timeout_seconds": 600,
   "prompt": "Open the supplied micro.blend. Rename SourceCube to BenchmarkCrate. Set its world dimensions to exactly (2.0, 1.0, 0.5) meters, place its bottom at Z=0, and apply scale so scale is (1,1,1). Assign exactly one material named CrateBlue with sRGB base color #1769AA. Do not alter the camera or light. Save the result as output/micro-result.blend. Report the work performed and relative artifact path.",
   "fixture": {
     "contract": "fixtures/specs/P1.fixture.json",

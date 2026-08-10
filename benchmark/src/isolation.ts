@@ -25,13 +25,17 @@ export interface RunLayout {
 	processRegistry: string;
 }
 
-interface OwnedProcess {
+export interface OwnedProcess {
 	pid: number;
 	role: "blender" | "mcp" | "agent";
 	port: number | null;
 	started_at: string;
 	executable: string;
 	run_id: string;
+	// Set when the process was spawned as its own group leader, so teardown must
+	// signal the whole group to reap grandchildren such as the pinned BlenderMCP
+	// server and the Blender process it drives.
+	process_group?: boolean;
 }
 
 export async function createRunLayout(
@@ -121,6 +125,14 @@ export async function registerOwnedProcess(
 	await writeJsonAtomic(path, current);
 }
 
+function signalProcess(entry: OwnedProcess, signal: NodeJS.Signals): void {
+	try {
+		process.kill(entry.process_group ? -entry.pid : entry.pid, signal);
+	} catch {
+		// Already exited; there is nothing left to signal.
+	}
+}
+
 function isAlive(pid: number): boolean {
 	try {
 		process.kill(pid, 0);
@@ -142,13 +154,17 @@ export async function cleanupOwnedProcesses(
 		throw error;
 	}
 	for (const processInfo of owned)
-		if (isAlive(processInfo.pid)) process.kill(processInfo.pid, "SIGTERM");
+		if (isAlive(processInfo.pid)) signalProcess(processInfo, "SIGTERM");
 	const deadline = Date.now() + timeoutMilliseconds;
 	while (owned.some((entry) => isAlive(entry.pid)) && Date.now() < deadline) {
 		await new Promise((resolvePromise) => setTimeout(resolvePromise, 50));
 	}
 	const survivors = owned.filter((entry) => isAlive(entry.pid));
-	for (const processInfo of survivors) process.kill(processInfo.pid, "SIGKILL");
+	for (const processInfo of survivors) signalProcess(processInfo, "SIGKILL");
+	// Sweep the groups unconditionally: a leader can exit while the BlenderMCP
+	// server or Blender process it spawned is still running and holding a port.
+	for (const processInfo of owned)
+		if (processInfo.process_group) signalProcess(processInfo, "SIGKILL");
 	for (const processInfo of owned)
 		if (processInfo.port !== null) await assertPortClosed(processInfo.port);
 	await writeJsonAtomic(registryPath, []);
@@ -167,6 +183,12 @@ export function sanitizedEnvironment(
 	environment.HOME = join(layout.root, "home");
 	environment.BLENDER_AXI_PORT = String(port);
 	environment.BLENDER_AXI_STATE_DIR = join(layout.root, "state");
+	// The stock BlenderMCP server connects to BLENDER_HOST/BLENDER_PORT and
+	// otherwise falls back to localhost:9876. Each cell drives its own Blender on
+	// a unique isolated port, so without these the MCP arm would either fail to
+	// connect or reach an unrelated external Blender on 9876.
+	environment.BLENDER_HOST = "127.0.0.1";
+	environment.BLENDER_PORT = String(port);
 	environment.BLENDER_MCP_DISABLE_TELEMETRY = "1";
 	environment.BENCHMARK_RUN_DIR = layout.root;
 	environment.BENCHMARK_WORKSPACE = layout.workspace;

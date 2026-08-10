@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import { generatePlan, savePlan } from "../src/plan.js";
 import {
 	infrastructureFailure,
+	measuredCost,
 	runSweep,
 	SyntheticAgentAdapter,
 	stopReason,
@@ -112,11 +113,9 @@ describe("resume-safe sweep", () => {
 
 describe("ceiling stops", () => {
 	const config = {
-		prices: {} as never,
 		versions: {},
 		model: { provider: null, id: null, effort: null, agent_cli: null },
 		limits: {
-			max_dollars: 1,
 			max_wall_seconds: 100,
 			max_invalid_attempts: 2,
 			max_critical_failures: 1,
@@ -124,17 +123,16 @@ describe("ceiling stops", () => {
 			port_max: 2,
 		},
 	};
-	it("stops on cost, time, invalid attempts, and critical failures", () => {
+	it("stops on wall time, invalid attempts, and critical failures", () => {
 		const base = {
-			usage: { api_cost_usd: 1 },
+			usage: { api_cost_usd: null },
 			validity: { status: "valid" },
 			outcome: { critical_failure: false },
 		} as unknown as AttemptRecord;
-		expect(stopReason([base], config, 0)).toBe("dollar_ceiling");
+		expect(stopReason([base], config, 0)).toBeNull();
 		expect(stopReason([], config, 100)).toBe("wall_time_ceiling");
 		const invalid = {
 			...base,
-			usage: { api_cost_usd: 0 },
 			validity: { status: "invalid" },
 		} as AttemptRecord;
 		expect(stopReason([invalid, invalid], config, 0)).toBe(
@@ -142,10 +140,43 @@ describe("ceiling stops", () => {
 		);
 		const critical = {
 			...base,
-			usage: { api_cost_usd: 0 },
 			outcome: { critical_failure: true },
 		} as AttemptRecord;
 		expect(stopReason([critical], config, 0)).toBe("critical_failure_ceiling");
+	});
+
+	it("never stops on a dollar ceiling because cost is excluded", () => {
+		const expensive = {
+			usage: { api_cost_usd: 1000 },
+			validity: { status: "valid" },
+			outcome: { critical_failure: false },
+		} as unknown as AttemptRecord;
+		expect(stopReason([expensive, expensive], config, 0)).toBeNull();
+	});
+});
+
+describe("measured cost only", () => {
+	it("reports a genuine provider-reported cost", () => {
+		expect(measuredCost({ api_cost_usd: 0.42 })).toBe(0.42);
+	});
+
+	it("never presents a zero catalog price as a measured cost", () => {
+		expect(measuredCost({ api_cost_usd: 0 })).toBeNull();
+	});
+
+	it("stays honestly null when the provider reports nothing", () => {
+		expect(measuredCost({})).toBeNull();
+		expect(measuredCost({ api_cost_usd: null })).toBeNull();
+	});
+
+	it("never derives a cost from token counts and a frozen rate sheet", () => {
+		expect(
+			measuredCost({
+				provider_input_tokens_uncached: 100_000,
+				provider_output_tokens: 50_000,
+				provider_reasoning_tokens: 25_000,
+			}),
+		).toBeNull();
 	});
 });
 

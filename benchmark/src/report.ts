@@ -66,7 +66,7 @@ export function markdownReport(report: AnalysisReport): string {
 			`- Blinded visual score: ${metric(value.visual_score)}`,
 			`- Unity readiness: ${metric(value.unity_score)}`,
 			`- Provider input tokens: ${metric(value.input_tokens)}`,
-			`- Cost USD: ${metric(value.cost_usd)}`,
+			`- Provider-reported cost USD (excluded from conclusions): ${metric(value.cost_usd)}`,
 			`- Wall seconds: ${metric(value.wall_seconds)}`,
 			`- Marginal interface surface bytes: ${metric(value.interface_surface_bytes)}`,
 			"",
@@ -91,7 +91,7 @@ export function markdownReport(report: AnalysisReport): string {
 		`- Blinded visual: ${interval(report.paired.visual_axi_minus_mcp)}`,
 		`- Unity readiness: ${interval(report.paired.unity_axi_minus_mcp)}`,
 		`- Input token ratio AXI/MCP: ${interval(report.paired.input_token_ratio_axi_over_mcp)}`,
-		`- Cost ratio AXI/MCP: ${interval(report.paired.cost_ratio_axi_over_mcp)}`,
+		`- Provider-reported cost ratio AXI/MCP (excluded from conclusions): ${interval(report.paired.cost_ratio_axi_over_mcp)}`,
 		"",
 		"## Error composition",
 		"",
@@ -102,11 +102,14 @@ export function markdownReport(report: AnalysisReport): string {
 	);
 	for (const [regime, arms] of Object.entries(report.cache_views))
 		for (const [arm, summary] of Object.entries(arms))
-			lines.push(`- ${regime} ${arm} cost: ${metric(summary)}`);
+			lines.push(
+				`- ${regime} ${arm} provider-reported cost: ${metric(summary)}`,
+			);
 	lines.push(
 		"",
 		"## Interpretation boundaries",
 		"",
+		"- Dollar cost is excluded from this benchmark. Cost appears only when the provider reports a strictly positive figure; it is never derived from a catalog price of zero or a frozen rate sheet, so NA means unmeasured rather than free. Token counts and wall time carry the efficiency comparison.",
 		"- A final agent claim never overrides deterministic failure.",
 		"- Infrastructure-invalid attempts remain in raw results but are excluded from primary estimates.",
 		"- Unsupported viewport and third-party service capabilities must be reported separately.",

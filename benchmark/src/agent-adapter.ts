@@ -1,10 +1,19 @@
 import { spawn } from "node:child_process";
-import { readFile, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { AgentAdapter, AgentResult } from "./runner.js";
 import type { AttemptRecord, ToolEvent } from "./types.js";
+import { registerOwnedProcess } from "./isolation.js";
 import { extractToolEvents } from "./transcript.js";
 import { readJson, redact } from "./util.js";
+
+// The provider wrapper is a process tree (wrapper shell -> agent CLI -> pinned
+// MCP server -> Blender). Signalling only the direct child leaves the rest of
+// the tree alive, which is how the first live run orphaned a BlenderMCP server
+// still holding port 9876. Every provider process is therefore started as its
+// own process-group leader and torn down by group, with SIGKILL escalation, so
+// nothing outlives the cell on success, failure, interrupt, or timeout.
+const TERMINATION_GRACE_MILLISECONDS = 5_000;
 
 interface CommandConfig {
 	protocol: "jsonl-stdout-v1";
@@ -50,16 +59,36 @@ export class CommandAgentAdapter implements AgentAdapter {
 			...config.required_disable_ambient_args,
 			...config.arm_args[input.cell.arm],
 		];
-		const started = process.hrtime.bigint();
+		const child = spawn(config.executable, args, {
+			cwd: input.runRoot,
+			env: input.environment,
+			stdio: ["pipe", "pipe", "pipe"],
+			detached: true,
+		});
+		if (child.pid === undefined)
+			throw new Error("Provider adapter failed to start");
+		const agentPid = child.pid;
+		await registerOwnedProcess(join(input.runRoot, "owned-processes.json"), {
+			pid: agentPid,
+			role: "agent",
+			port: null,
+			started_at: new Date().toISOString(),
+			executable: config.executable,
+			run_id: input.cell.cell_id,
+			process_group: true,
+		});
+		const killGroup = (signal: NodeJS.Signals): void => {
+			try {
+				process.kill(-agentPid, signal);
+			} catch {
+				// The group is already gone; nothing is left to reap.
+			}
+		};
 		return await new Promise<AgentResult>((resolvePromise, reject) => {
-			const child = spawn(config.executable!, args, {
-				cwd: input.runRoot,
-				env: input.environment,
-				stdio: ["pipe", "pipe", "pipe"],
-			});
 			let stdout = "";
 			let stderr = "";
 			let timedOut = false;
+			let escalation: NodeJS.Timeout | null = null;
 			child.stdout.setEncoding("utf8");
 			child.stderr.setEncoding("utf8");
 			child.stdout.on("data", (chunk: string) => (stdout += chunk));
@@ -68,10 +97,18 @@ export class CommandAgentAdapter implements AgentAdapter {
 			child.stdin.end(prompt);
 			const timer = setTimeout(() => {
 				timedOut = true;
-				child.kill("SIGTERM");
+				killGroup("SIGTERM");
+				escalation = setTimeout(
+					() => killGroup("SIGKILL"),
+					TERMINATION_GRACE_MILLISECONDS,
+				);
 			}, input.task.timeout_seconds * 1000);
 			child.once("exit", async (code, signal) => {
 				clearTimeout(timer);
+				if (escalation) clearTimeout(escalation);
+				// The group leader has exited; sweep any surviving descendant so no
+				// wrapper, MCP server, or Blender process outlives the cell.
+				killGroup("SIGKILL");
 				const secrets = config.credential_environment_variables
 					.map((name) => input.environment[name])
 					.filter((value): value is string => Boolean(value));
@@ -111,7 +148,6 @@ export class CommandAgentAdapter implements AgentAdapter {
 				const cache =
 					[...envelopes].reverse().find((record) => record.cache)?.cache ?? {};
 				const events: ToolEvent[] = extractToolEvents(records);
-				if (timedOut) usage.api_cost_usd ??= null;
 				if (!timedOut && (code !== 0 || signal !== null)) {
 					reject(
 						new Error(
@@ -129,11 +165,9 @@ export class CommandAgentAdapter implements AgentAdapter {
 					cache,
 					agentTurns: Number(usage.agent_turns ?? 0),
 					retries: 0,
-					agentPid: child.pid ?? null,
+					agentPid,
+					timedOut,
 				});
-				void code;
-				void signal;
-				void started;
 			});
 		});
 	}

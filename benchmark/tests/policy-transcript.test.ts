@@ -47,6 +47,24 @@ describe("arm policy", () => {
 			detectPolicyViolations("axi", [shell("python socket_helper.py")]).length,
 		).toBeGreaterThan(0);
 	});
+
+	it("rejects a pinned toolchain staged under /Users/ but accepts it elsewhere", () => {
+		// The agent resolves the launcher with `command -v`, so the absolute path
+		// appears in every later tool event. Staging the pinned toolchain under
+		// /Users/ therefore turns ordinary correct AXI usage into a critical
+		// policy violation, which is a harness defect rather than agent behavior.
+		const underUsers = detectPolicyViolations("axi", [
+			shell("/Users/nohj/luna-axi-pin/benchbin/blender-axi ping"),
+		]);
+		expect(underUsers.some((item) => item.rule === "common-deny")).toBe(true);
+
+		// Same command, same arm, only the staging directory differs.
+		expect(
+			detectPolicyViolations("axi", [
+				shell("/tmp/luna-axi-pin/benchbin/blender-axi ping"),
+			]),
+		).toEqual([]);
+	});
 });
 
 describe("nested provider transcript", () => {
