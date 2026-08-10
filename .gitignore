@@ -35,3 +35,6 @@ benchmark/**/UserSettings/
 
 # OS and editor cruft
 .DS_Store
+
+# Local Pi fabric/mesh scratch state, never part of the benchmark.
+.pi/
