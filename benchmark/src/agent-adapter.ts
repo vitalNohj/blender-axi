@@ -88,24 +88,35 @@ export class CommandAgentAdapter implements AgentAdapter {
 			let stdout = "";
 			let stderr = "";
 			let timedOut = false;
+			let aborted = input.signal?.aborted ?? false;
 			let escalation: NodeJS.Timeout | null = null;
+			const terminate = (): void => {
+				killGroup("SIGTERM");
+				escalation ??= setTimeout(
+					() => killGroup("SIGKILL"),
+					TERMINATION_GRACE_MILLISECONDS,
+				);
+			};
+			const onAbort = (): void => {
+				aborted = true;
+				terminate();
+			};
 			child.stdout.setEncoding("utf8");
 			child.stderr.setEncoding("utf8");
 			child.stdout.on("data", (chunk: string) => (stdout += chunk));
 			child.stderr.on("data", (chunk: string) => (stderr += chunk));
 			child.once("error", reject);
 			child.stdin.end(prompt);
+			input.signal?.addEventListener("abort", onAbort, { once: true });
+			if (aborted) terminate();
 			const timer = setTimeout(() => {
 				timedOut = true;
-				killGroup("SIGTERM");
-				escalation = setTimeout(
-					() => killGroup("SIGKILL"),
-					TERMINATION_GRACE_MILLISECONDS,
-				);
+				terminate();
 			}, input.task.timeout_seconds * 1000);
 			child.once("exit", async (code, signal) => {
 				clearTimeout(timer);
 				if (escalation) clearTimeout(escalation);
+				input.signal?.removeEventListener("abort", onAbort);
 				// The group leader has exited; sweep any surviving descendant so no
 				// wrapper, MCP server, or Blender process outlives the cell.
 				killGroup("SIGKILL");
@@ -148,6 +159,10 @@ export class CommandAgentAdapter implements AgentAdapter {
 				const cache =
 					[...envelopes].reverse().find((record) => record.cache)?.cache ?? {};
 				const events: ToolEvent[] = extractToolEvents(records);
+				if (aborted) {
+					reject(input.signal?.reason ?? new Error("Agent run aborted"));
+					return;
+				}
 				if (!timedOut && (code !== 0 || signal !== null)) {
 					reject(
 						new Error(

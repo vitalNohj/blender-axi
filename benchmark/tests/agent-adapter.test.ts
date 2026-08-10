@@ -196,6 +196,37 @@ describe("provider process-tree cleanup", () => {
 		})();
 		expect(alive).toBe(false);
 	}, 30_000);
+
+	it("leaves no surviving grandchild after an external abort", async () => {
+		const { adapter, runRoot } = await harness(
+			[
+				"#!/bin/sh",
+				"cat > /dev/null",
+				"sleep 120 &",
+				'echo "{\\"grandchild_pid\\":$!}" >&2',
+				"sleep 120",
+			].join("\n"),
+		);
+		const controller = new AbortController();
+		const run = adapter.run({
+			cell,
+			task: await p1(30),
+			runRoot,
+			port: 19001,
+			environment: { ...process.env },
+			baseInstructions: "base",
+			conditionInstructions: "condition",
+			signal: controller.signal,
+		});
+		setTimeout(() => controller.abort(new Error("host interrupt")), 250);
+		await expect(run).rejects.toThrow("host interrupt");
+		const stderr = await readFile(join(runRoot, "logs", "agent.stderr.log"), "utf8");
+		const grandchild = Number(
+			(JSON.parse(stderr.trim().split("\n")[0]!) as { grandchild_pid: number })
+				.grandchild_pid,
+		);
+		expect(() => process.kill(grandchild, 0)).toThrow();
+	}, 10_000);
 });
 
 describe("pinned BlenderMCP server addressing", () => {

@@ -158,14 +158,32 @@ async function exists(path: string): Promise<boolean> {
 async function run(
 	command: string,
 	args: string[],
+	signal?: AbortSignal,
 ): Promise<{ code: number | null; stderr: string }> {
 	return await new Promise((resolvePromise, reject) => {
-		const child = spawn(command, args, { stdio: ["ignore", "ignore", "pipe"] });
+		const child = spawn(command, args, {
+			stdio: ["ignore", "ignore", "pipe"],
+			detached: true,
+		});
 		let stderr = "";
+		const killGroup = (): void => {
+			if (child.pid === undefined) return;
+			try {
+				process.kill(-child.pid, "SIGKILL");
+			} catch {}
+		};
+		const onAbort = (): void => killGroup();
 		child.stderr.setEncoding("utf8");
 		child.stderr.on("data", (chunk: string) => (stderr += chunk));
 		child.once("error", reject);
-		child.once("exit", (code) => resolvePromise({ code, stderr }));
+		signal?.addEventListener("abort", onAbort, { once: true });
+		if (signal?.aborted) killGroup();
+		child.once("exit", (code) => {
+			signal?.removeEventListener("abort", onAbort);
+			killGroup();
+			if (signal?.aborted) reject(signal.reason);
+			else resolvePromise({ code, stderr });
+		});
 	});
 }
 
@@ -174,6 +192,7 @@ async function inspectBlend(
 	benchmarkRoot: string,
 	blendPath: string,
 	outputPath: string,
+	signal?: AbortSignal,
 ): Promise<SceneFacts | null> {
 	if (!(await exists(blendPath))) return null;
 	const result = await run(blender, [
@@ -187,7 +206,7 @@ async function inspectBlend(
 		outputPath,
 		"--allowed-root",
 		join(outputPath, ".."),
-	]);
+	], signal);
 	if (result.code !== 0) return null;
 	return await readJson<SceneFacts>(outputPath);
 }
@@ -479,6 +498,7 @@ async function gradeRoundTrip(
 	benchmarkRoot: string,
 	artifactPath: string,
 	evidencePath: string,
+	signal?: AbortSignal,
 ): Promise<OracleResult> {
 	if (!(await exists(artifactPath)))
 		return fail(check, `Missing round-trip artifact ${artifactPath}`);
@@ -494,7 +514,7 @@ async function gradeRoundTrip(
 		evidencePath,
 		"--allowed-root",
 		join(evidencePath, "..", ".."),
-	]);
+	], signal);
 	if (result.code !== 0 || !(await exists(evidencePath)))
 		return fail(
 			check,
@@ -576,6 +596,7 @@ export async function gradeRun(options: {
 	arm: "axi" | "mcp";
 	blenderExecutable?: string;
 	fixtureHashBefore: string;
+	signal?: AbortSignal;
 }): Promise<GradeResult> {
 	const { benchmarkRoot, runRoot, runId, task, arm } = options;
 	const blender =
@@ -596,10 +617,22 @@ export async function gradeRun(options: {
 	const startPath = join(runRoot, "oracles", "start-scene.json");
 	const resultPath = join(runRoot, "oracles", "result-scene.json");
 	const start = fixtureArtifact
-		? await inspectBlend(blender, benchmarkRoot, fixtureArtifact, startPath)
+		? await inspectBlend(
+				blender,
+				benchmarkRoot,
+				fixtureArtifact,
+				startPath,
+				options.signal,
+			)
 		: null;
 	const result = resultBlendPath
-		? await inspectBlend(blender, benchmarkRoot, resultBlendPath, resultPath)
+		? await inspectBlend(
+				blender,
+				benchmarkRoot,
+				resultBlendPath,
+				resultPath,
+				options.signal,
+			)
 		: null;
 	const interfacePath = join(runRoot, "transcript", "interface.jsonl");
 	const violations = await checkTranscriptPolicy(arm, interfacePath);
@@ -619,6 +652,7 @@ export async function gradeRun(options: {
 	}
 
 	for (const check of task.deterministic_oracles) {
+		options.signal?.throwIfAborted();
 		if (check.kind === "artifact") {
 			const paths = check.params?.path
 				? [String(check.params.path)]
@@ -694,6 +728,7 @@ export async function gradeRun(options: {
 							benchmarkRoot,
 							join(runRoot, artifact.path),
 							evidencePath,
+							options.signal,
 						)
 					: fail(check, `Manifest has no ${extension.toUpperCase()} artifact`),
 			);
@@ -764,6 +799,7 @@ export async function gradeRun(options: {
 		hard_failure_ids: hardFailures,
 		oracle_results: oracleResults,
 	};
+	options.signal?.throwIfAborted();
 	await writeJsonAtomic(join(runRoot, "oracles", "grade.json"), grade);
 	return grade;
 }

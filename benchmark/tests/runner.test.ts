@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { access, mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, cp, mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { generatePlan, savePlan } from "../src/plan.js";
@@ -153,6 +153,54 @@ describe("ceiling stops", () => {
 		} as unknown as AttemptRecord;
 		expect(stopReason([expensive, expensive], config, 0)).toBeNull();
 	});
+
+	it("aborts the active cell at the campaign wall-time deadline", async () => {
+		const root = await mkdtemp(join(tmpdir(), "blend-bench-campaign-wall-"));
+		const isolatedBenchmark = join(root, "benchmark");
+		await cp(benchmarkRoot, isolatedBenchmark, { recursive: true });
+		const frozenPath = join(isolatedBenchmark, "config", "frozen.json");
+		const frozen = JSON.parse(await readFile(frozenPath, "utf8")) as {
+			limits: { max_wall_seconds: number };
+		};
+		frozen.limits.max_wall_seconds = 0.2;
+		await writeFile(frozenPath, `${JSON.stringify(frozen, null, 2)}\n`);
+		const planPath = join(root, "plan.json");
+		const plan = await generatePlan(isolatedBenchmark, {
+			kind: "selected",
+			taskIds: ["P1"],
+			replicates: 1,
+			seed: 42,
+		});
+		await savePlan(planPath, plan);
+		let aborted = false;
+		const adapter: AgentAdapter = {
+			async run(input) {
+				await new Promise<void>((_resolvePromise, reject) => {
+					input.signal?.addEventListener(
+						"abort",
+						() => {
+							aborted = true;
+							reject(input.signal?.reason);
+						},
+						{ once: true },
+					);
+				});
+				throw new Error("unreachable");
+			},
+		};
+		const result = await runSweep({
+			benchmarkRoot: isolatedBenchmark,
+			planPath,
+			runsRoot: join(root, "runs"),
+			selectedCells: [plan.cells[0]!.cell_id],
+			adapter,
+		});
+		expect(aborted).toBe(true);
+		expect(result).toMatchObject({
+			attempted: 0,
+			stopped_reason: "wall_time_ceiling",
+		});
+	}, 10_000);
 });
 
 describe("measured cost only", () => {

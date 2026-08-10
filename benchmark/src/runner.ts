@@ -78,6 +78,7 @@ export interface AgentAdapter {
 		environment: NodeJS.ProcessEnv;
 		baseInstructions: string;
 		conditionInstructions: string;
+		signal?: AbortSignal;
 	}): Promise<AgentResult>;
 }
 
@@ -167,9 +168,11 @@ async function exists(path: string): Promise<boolean> {
 async function waitForListener(
 	port: number,
 	timeoutMilliseconds: number,
+	signal?: AbortSignal,
 ): Promise<void> {
 	const deadline = Date.now() + timeoutMilliseconds;
 	while (Date.now() < deadline) {
+		signal?.throwIfAborted();
 		const connected = await new Promise<boolean>((resolvePromise) => {
 			const socket = createConnection({ host: "127.0.0.1", port });
 			socket.setTimeout(200);
@@ -184,7 +187,17 @@ async function waitForListener(
 			socket.once("error", () => resolvePromise(false));
 		});
 		if (connected) return;
-		await new Promise((resolvePromise) => setTimeout(resolvePromise, 100));
+		await new Promise<void>((resolvePromise, reject) => {
+			const onAbort = (): void => {
+				clearTimeout(timer);
+				reject(signal?.reason);
+			};
+			const timer = setTimeout(() => {
+				signal?.removeEventListener("abort", onAbort);
+				resolvePromise();
+			}, 100);
+			signal?.addEventListener("abort", onAbort, { once: true });
+		});
 	}
 	throw new Error(
 		`Benchmark Blender listener on port ${port} did not become ready`,
@@ -342,6 +355,10 @@ export async function runSweep(options: {
 			);
 	}
 	const campaignStart = Date.now();
+	const campaignDeadline =
+		config.limits.max_wall_seconds === null
+			? null
+			: campaignStart + config.limits.max_wall_seconds * 1000;
 	let skipped = 0;
 	let attempted = 0;
 	let stoppedReason: string | null = null;
@@ -371,6 +388,30 @@ export async function runSweep(options: {
 			cell.cell_id,
 			task.id,
 		);
+		const controller = new AbortController();
+		let hostSignal: NodeJS.Signals | null = null;
+		let campaignExpired = false;
+		const signalHandlers = new Map<NodeJS.Signals, () => void>();
+		for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
+			const handler = (): void => {
+				hostSignal ??= signal;
+				controller.abort(new Error(`Benchmark interrupted by ${signal}`));
+			};
+			signalHandlers.set(signal, handler);
+			process.once(signal, handler);
+		}
+		const campaignTimer =
+			campaignDeadline === null
+				? null
+				: setTimeout(() => {
+					campaignExpired = true;
+					controller.abort(new Error("Benchmark campaign wall-time ceiling reached"));
+				}, Math.max(0, campaignDeadline - Date.now()));
+		const disposeCellLifecycle = (): void => {
+			if (campaignTimer) clearTimeout(campaignTimer);
+			for (const [signal, handler] of signalHandlers)
+				process.removeListener(signal, handler);
+		};
 		const port = await chooseUniquePort(
 			config.limits.port_min,
 			config.limits.port_max,
@@ -425,7 +466,7 @@ export async function runSweep(options: {
 					},
 				);
 				blenderPid = blender.pid ?? null;
-				await waitForListener(port, 45_000);
+				await waitForListener(port, 45_000, controller.signal);
 				launchSeconds = Number(process.hrtime.bigint() - launchStarted) / 1e9;
 			}
 			agentResult = await options.adapter.run({
@@ -436,6 +477,7 @@ export async function runSweep(options: {
 				environment,
 				baseInstructions,
 				conditionInstructions: arms.arms[cell.arm].condition_instructions,
+				signal: controller.signal,
 			});
 		} catch (error) {
 			infrastructureError = error as Error;
@@ -452,7 +494,26 @@ export async function runSweep(options: {
 				timedOut: false,
 			};
 		}
-		await cleanupOwnedProcesses(layout.processRegistry);
+		let cleanupError: unknown;
+		try {
+			await cleanupOwnedProcesses(layout.processRegistry);
+		} catch (error) {
+			cleanupError = error;
+		}
+		if (hostSignal) {
+			disposeCellLifecycle();
+			process.kill(process.pid, hostSignal);
+			throw new Error(`Benchmark interrupted by ${hostSignal}`);
+		}
+		if (campaignExpired) {
+			disposeCellLifecycle();
+			stoppedReason = "wall_time_ceiling";
+			break;
+		}
+		if (cleanupError) {
+			disposeCellLifecycle();
+			throw cleanupError;
+		}
 		const ended = new Date();
 		const secrets = Object.entries(process.env)
 			.filter(([key]) => /key|token|secret|password/iu.test(key))
@@ -484,17 +545,42 @@ export async function runSweep(options: {
 		const infrastructure = infrastructureError
 			? infrastructureFailure(task, cell.cell_id, infrastructureError)
 			: null;
-		const grade = infrastructure
-			? infrastructure.grade
-			: await gradeRun({
-					benchmarkRoot,
-					runRoot: layout.root,
-					runId: cell.cell_id,
-					task,
-					arm: cell.arm,
-					blenderExecutable: options.blenderExecutable,
-					fixtureHashBefore: entry.artifact_sha256,
-				});
+		let grade: GradeResult;
+		try {
+			grade = infrastructure
+				? infrastructure.grade
+				: await gradeRun({
+						benchmarkRoot,
+						runRoot: layout.root,
+						runId: cell.cell_id,
+						task,
+						arm: cell.arm,
+						blenderExecutable: options.blenderExecutable,
+						fixtureHashBefore: entry.artifact_sha256,
+						signal: controller.signal,
+					});
+		} catch (error) {
+			disposeCellLifecycle();
+			if (hostSignal) {
+				process.kill(process.pid, hostSignal);
+				throw new Error(`Benchmark interrupted by ${hostSignal}`);
+			}
+			if (campaignExpired) {
+				stoppedReason = "wall_time_ceiling";
+				break;
+			}
+			throw error;
+		}
+		if (hostSignal) {
+			disposeCellLifecycle();
+			process.kill(process.pid, hostSignal);
+			throw new Error(`Benchmark interrupted by ${hostSignal}`);
+		}
+		if (campaignExpired) {
+			disposeCellLifecycle();
+			stoppedReason = "wall_time_ceiling";
+			break;
+		}
 		if (
 			detectPolicyViolations(cell.arm, safeEvents).length &&
 			grade.status !== "policy_violation"
@@ -554,6 +640,15 @@ export async function runSweep(options: {
 		await appendJsonl(resultsPath, record);
 		await writeJsonAtomic(join(layout.root, "attempt.json"), record);
 		attempted += 1;
+		disposeCellLifecycle();
+		if (hostSignal) {
+			process.kill(process.pid, hostSignal);
+			throw new Error(`Benchmark interrupted by ${hostSignal}`);
+		}
+		if (campaignExpired) {
+			stoppedReason = "wall_time_ceiling";
+			break;
+		}
 	}
 	return {
 		attempted,
