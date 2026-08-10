@@ -15,8 +15,8 @@ Do not put a primary checkout, user Blender file, or shared Unity project under 
 3. Install Blender 5.2.0 LTS. Set `BLENDER_EXECUTABLE` if it is not `/Applications/Blender.app/Contents/MacOS/Blender`.
 4. Put the unmodified BlenderMCP v1.2 `addon.py` outside this repository and set `BLENDER_MCP_ADDON_PATH`. Its required SHA-256 is `ca6955bb584d78e229f020a8b9d7011440adc6e94dab0ac8e01ab2794db19dc0`.
 5. Review `benchmark/config/frozen.json`. Before live execution, freeze exact provider, model snapshot, effort, agent CLI, campaign wall limit, and exact Unity patch. Do not replace nulls with invented zeroes. Dollar cost is excluded from this benchmark: no rate sheet and no dollar ceiling are configured, `api_cost_usd` stays null unless the provider reports a strictly positive cost, and a catalog price of zero is never treated as free.
-6. Stage every pinned toolchain the arms invoke outside `/Users/`: the transcript policy denies any tool event containing `/Users/`, and an agent that resolves a binary with `command -v` embeds its absolute path in later calls. Putting the directory on `PATH` is not sufficient.
-7. Configure a provider-specific wrapper in `benchmark/config/agent-command.json`. It must start a fresh non-persistent session, disable ambient skills/hooks/MCPs, accept the full prompt on stdin, expose only the selected arm, emit provider JSONL on stdout, and preserve provider usage fields as null when unavailable.
+6. Stage every pinned toolchain the arms invoke outside `/Users/`, using the exact revisions in `benchmark/config/frozen.json`, and prove the staged files are byte-identical to artifacts built from those revisions before live execution. The transcript policy denies any tool event containing `/Users/`, and an agent that resolves a binary with `command -v` embeds its absolute path in later calls. Putting the directory on `PATH` is not sufficient.
+7. Configure a provider-specific wrapper in `benchmark/config/agent-command.json`. It must start a fresh non-persistent session, disable ambient skills/hooks/MCPs, accept the full prompt on stdin, expose only the selected arm, emit provider JSONL on stdout, and preserve provider usage fields as null when unavailable. Spawn the wrapper as its own process-group leader and tear down the group on process exit and on `SIGTERM`, `SIGINT`, or `SIGHUP`; Pi print mode does not emit `session_end`, so cleanup cannot depend on that event. Clear request watchdog timers during teardown.
 8. For P6, select an exact Unity Editor patch and URP package lock. FBX is the primary Unity artifact; GLB is the portable secondary artifact. Build a fresh minimal project generator that satisfies the `unity-urp-fbx-v1` contract. Unity is an explicit preflight requirement, not inferred from Blender or GLB validity.
 
 ## Fixtures
@@ -68,7 +68,7 @@ npm run benchmark -- preflight execute \
   --addon "$BLENDER_MCP_ADDON_PATH"
 ```
 
-It refuses unless there are exactly four P1/P5 cells, the fixture manifest and frozen Blender/addon hashes match, provider credentials and exact model configuration exist, the adapter declares fresh-session and ambient-integration-disable arguments, limits and frozen pricing are non-null, a Unity target is selected, and external port 9876 is closed. Do not run this command in CI or while building benchmark machinery.
+It refuses unless there are exactly four P1/P5 cells, the fixture manifest and frozen Blender/addon hashes match, provider credentials and exact model configuration exist, the adapter declares fresh-session and ambient-integration-disable arguments, the campaign wall limit is non-null, a Unity target is selected, and external port 9876 is closed. Dollar pricing is deliberately not a preflight requirement. Do not run this command in CI or while building benchmark machinery.
 
 ## Selected execution and resume
 
@@ -118,7 +118,7 @@ The runner stops before the configured wall-time, invalid-attempt, or critical-f
       unity.json             only when pinned Unity harness ran
 ```
 
-Records distinguish total first-turn context from marginal interface surface. They capture provider usage, cache use, normalized o200k counts, tool bytes and calls, nested tool events, turns, retries, request timing, paths, hashes, cost, outcomes, scores, validity, and replacement linkage. Provider-unavailable metrics are null. Secrets are removed from text and sensitive-key values before persistence.
+Records distinguish total first-turn context from marginal interface surface. They capture provider usage, cache use, normalized o200k counts, tool bytes and calls, nested tool events, turns, retries, request timing, paths, hashes, strictly positive provider-reported cost when available, outcomes, scores, validity, and replacement linkage. Provider-unavailable metrics are null. Secrets are removed from text and sensitive-key values before persistence.
 
 ## Deterministic grading
 
@@ -164,7 +164,7 @@ npm run benchmark -- report \
   --output /tmp/blender-bench/report
 ```
 
-This generates `report.json`, `report.md`, `report.html`, and `summary.csv`. Analysis includes per-task/per-arm outcomes, unbiased pass^k, error composition, category-ready rows, task-clustered two-stage paired bootstrap intervals, AXI-minus-MCP deltas, frozen non-inferiority verdicts, cold/warm cost views, and interface-surface summaries. Capability-exclusive records are reported separately and excluded from shared-quality estimates. Quality and efficiency are never collapsed.
+This generates `report.json`, `report.md`, `report.html`, and `summary.csv`. Analysis includes per-task/per-arm outcomes, unbiased pass^k, error composition, category-ready rows, task-clustered two-stage paired bootstrap intervals, AXI-minus-MCP deltas, frozen non-inferiority verdicts, optional provider-reported cost diagnostics, and interface-surface summaries. Dollar cost is excluded from conclusions; tokens and wall time carry the efficiency comparison. Capability-exclusive records are reported separately and excluded from shared-quality estimates. Quality and efficiency are never collapsed.
 
 ## Offline contributor proof
 
