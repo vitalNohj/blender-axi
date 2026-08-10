@@ -3,7 +3,7 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { AgentAdapter, AgentResult } from "./runner.js";
 import type { AttemptRecord, ToolEvent } from "./types.js";
-import { registerOwnedProcess } from "./isolation.js";
+import { registerSpawnedProcess } from "./isolation.js";
 import { extractToolEvents } from "./transcript.js";
 import { readJson, redact } from "./util.js";
 
@@ -68,15 +68,18 @@ export class CommandAgentAdapter implements AgentAdapter {
 		if (child.pid === undefined)
 			throw new Error("Provider adapter failed to start");
 		const agentPid = child.pid;
-		await registerOwnedProcess(join(input.runRoot, "owned-processes.json"), {
-			pid: agentPid,
-			role: "agent",
-			port: null,
-			started_at: new Date().toISOString(),
-			executable: config.executable,
-			run_id: input.cell.cell_id,
-			process_group: true,
-		});
+		await registerSpawnedProcess(
+			join(input.runRoot, "owned-processes.json"),
+			child,
+			{
+				role: "agent",
+				port: null,
+				started_at: new Date().toISOString(),
+				executable: config.executable,
+				run_id: input.cell.cell_id,
+				process_group: true,
+			},
+		);
 		const killGroup = (signal: NodeJS.Signals): void => {
 			try {
 				process.kill(-agentPid, signal);

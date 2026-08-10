@@ -6,6 +6,7 @@ import {
 	cleanupOwnedProcesses,
 	chooseUniquePort,
 	registerOwnedProcess,
+	registerSpawnedProcess,
 	sanitizedEnvironment,
 } from "../src/isolation.js";
 import { redact } from "../src/util.js";
@@ -59,6 +60,27 @@ describe("isolation and redaction", () => {
 		});
 		await cleanupOwnedProcesses(registry, 2000);
 		expect(JSON.parse(await readFile(registry, "utf8"))).toEqual([]);
+	});
+
+	it("kills a spawned process when ownership registration fails", async () => {
+		const root = await mkdtemp(join(tmpdir(), "blend-bench-register-failure-"));
+		const child = (await import("node:child_process")).spawn(
+			process.execPath,
+			["-e", "setInterval(()=>{},1000)"],
+			{ stdio: "ignore", detached: true },
+		);
+		expect(child.pid).toBeDefined();
+		await expect(
+			registerSpawnedProcess(join(root, "missing", "owned-processes.json"), child, {
+				role: "agent",
+				port: null,
+				started_at: new Date().toISOString(),
+				executable: process.execPath,
+				run_id: "registration-failure",
+				process_group: true,
+			}),
+		).rejects.toThrow(/owned-process registry/u);
+		expect(() => process.kill(child.pid!, 0)).toThrow();
 	});
 
 	it("redacts secret keys and token-shaped values", () => {

@@ -125,6 +125,27 @@ export async function registerOwnedProcess(
 	await writeJsonAtomic(path, current);
 }
 
+export async function registerSpawnedProcess(
+	path: string,
+	child: ReturnType<typeof spawn>,
+	processInfo: Omit<OwnedProcess, "pid">,
+): Promise<OwnedProcess> {
+	if (child.pid === undefined)
+		throw new Error(`Failed to spawn ${processInfo.role}`);
+	const owned = { ...processInfo, pid: child.pid };
+	try {
+		await registerOwnedProcess(path, owned);
+		return owned;
+	} catch (error) {
+		signalProcess(owned, "SIGKILL");
+		if (child.exitCode === null && child.signalCode === null)
+			await new Promise<void>((resolvePromise) =>
+				child.once("exit", () => resolvePromise()),
+			);
+		throw error;
+	}
+}
+
 function signalProcess(entry: OwnedProcess, signal: NodeJS.Signals): void {
 	try {
 		process.kill(entry.process_group ? -entry.pid : entry.pid, signal);
@@ -229,16 +250,15 @@ export async function spawnOwned(
 		cwd: options.cwd,
 		env: options.env,
 		stdio: ["ignore", stdout, stderr],
-		detached: false,
+		detached: true,
 	});
-	if (child.pid === undefined) throw new Error(`Failed to spawn ${role}`);
-	await registerOwnedProcess(registryPath, {
-		pid: child.pid,
+	await registerSpawnedProcess(registryPath, child, {
 		role,
 		port: options.port ?? null,
 		started_at: new Date().toISOString(),
 		executable,
 		run_id: runId,
+		process_group: true,
 	});
 	return child;
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { access, cp, mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { createServer } from "node:net";
 import { join, resolve } from "node:path";
 import { generatePlan, savePlan } from "../src/plan.js";
 import {
@@ -74,6 +75,54 @@ describe("resume-safe sweep", () => {
 			}),
 		).rejects.toThrow(/Unknown selected cell/u);
 		await expect(access(runs)).rejects.toMatchObject({ code: "ENOENT" });
+	});
+
+	it("disposes cell signal handlers when port selection fails", async () => {
+		const root = await mkdtemp(join(tmpdir(), "blend-bench-lifecycle-"));
+		const isolatedBenchmark = join(root, "benchmark");
+		await cp(benchmarkRoot, isolatedBenchmark, { recursive: true });
+		const server = createServer();
+		await new Promise<void>((resolvePromise) =>
+			server.listen(0, "127.0.0.1", resolvePromise),
+		);
+		const address = server.address();
+		if (!address || typeof address === "string")
+			throw new Error("Test server did not bind a TCP port");
+		const frozenPath = join(isolatedBenchmark, "config", "frozen.json");
+		const frozen = JSON.parse(await readFile(frozenPath, "utf8")) as {
+			limits: { port_min: number; port_max: number };
+		};
+		frozen.limits.port_min = address.port;
+		frozen.limits.port_max = address.port;
+		await writeFile(frozenPath, `${JSON.stringify(frozen, null, 2)}\n`);
+		const planPath = join(root, "plan.json");
+		const plan = await generatePlan(isolatedBenchmark, {
+			kind: "selected",
+			taskIds: ["P1"],
+			replicates: 1,
+			seed: 42,
+		});
+		await savePlan(planPath, plan);
+		const signals = ["SIGINT", "SIGTERM", "SIGHUP"] as const;
+		const listenerCounts = signals.map((signal) => process.listenerCount(signal));
+		try {
+			await expect(
+				runSweep({
+					benchmarkRoot: isolatedBenchmark,
+					planPath,
+					runsRoot: join(root, "runs"),
+					selectedCells: [plan.cells[0]!.cell_id],
+					adapter: new SyntheticAgentAdapter(root),
+				}),
+			).rejects.toThrow(/No free benchmark port/u);
+		} finally {
+			await new Promise<void>((resolvePromise, reject) =>
+				server.close((error) => (error ? reject(error) : resolvePromise())),
+			);
+		}
+		expect(signals.map((signal) => process.listenerCount(signal))).toEqual(
+			listenerCounts,
+		);
 	});
 
 	it("records provider launch failures as infrastructure-invalid", async () => {

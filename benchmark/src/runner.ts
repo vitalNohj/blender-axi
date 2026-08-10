@@ -412,156 +412,97 @@ export async function runSweep(options: {
 			for (const [signal, handler] of signalHandlers)
 				process.removeListener(signal, handler);
 		};
-		const port = await chooseUniquePort(
-			config.limits.port_min,
-			config.limits.port_max,
-			cell.seed,
-		);
-		const environment = sanitizedEnvironment(
-			layout,
-			port,
-			process.env,
-			agentCommand.credential_environment_variables,
-		);
-		const started = new Date();
-		let blenderPid: number | null = null;
-		let launchSeconds: number | null = null;
-		let agentResult: AgentResult;
-		let infrastructureError: Error | null = null;
 		try {
-			await assertPortClosed(port);
-			if (options.live) {
-				if (!options.addonPath)
-					throw new Error(
-						"Live execution requires the exact pinned addon path",
-					);
-				const blenderExecutable =
-					options.blenderExecutable ?? process.env.BLENDER_EXECUTABLE;
-				if (!blenderExecutable)
-					throw new Error(
-						"Live execution requires the pinned Blender executable",
-					);
-				const startup = join(layout.workspace, "benchmark-startup.py");
-				await writeBlenderStartup(startup, port, options.addonPath);
-				const launchStarted = process.hrtime.bigint();
-				const blender = await spawnOwned(
-					layout.processRegistry,
-					cell.cell_id,
-					"blender",
-					blenderExecutable,
-					[
-						"--factory-startup",
-						task.fixture.source_artifact
-							? join(layout.fixture, task.fixture.source_artifact)
-							: "",
-						"--python",
-						startup,
-					],
-					{
-						cwd: layout.workspace,
-						env: environment,
-						port,
-						stdoutPath: join(layout.logs, "blender.stdout.log"),
-						stderrPath: join(layout.logs, "blender.stderr.log"),
-					},
-				);
-				blenderPid = blender.pid ?? null;
-				await waitForListener(port, 45_000, controller.signal);
-				launchSeconds = Number(process.hrtime.bigint() - launchStarted) / 1e9;
-			}
-			agentResult = await options.adapter.run({
-				cell,
-				task,
-				runRoot: layout.root,
+			const port = await chooseUniquePort(
+				config.limits.port_min,
+				config.limits.port_max,
+				cell.seed,
+			);
+			const environment = sanitizedEnvironment(
+				layout,
 				port,
-				environment,
-				baseInstructions,
-				conditionInstructions: arms.arms[cell.arm].condition_instructions,
-				signal: controller.signal,
-			});
-		} catch (error) {
-			infrastructureError = error as Error;
-			agentResult = {
-				answer: `Agent adapter crashed: ${(error as Error).message}`,
-				transcript: String((error as Error).stack ?? error),
-				providerRecords: [],
-				events: [],
-				usage: {},
-				cache: {},
-				agentTurns: 0,
-				retries: 0,
-				agentPid: null,
-				timedOut: false,
-			};
-		}
-		let cleanupError: unknown;
-		try {
-			await cleanupOwnedProcesses(layout.processRegistry);
-		} catch (error) {
-			cleanupError = error;
-		}
-		if (hostSignal) {
-			disposeCellLifecycle();
-			process.kill(process.pid, hostSignal);
-			throw new Error(`Benchmark interrupted by ${hostSignal}`);
-		}
-		if (campaignExpired) {
-			disposeCellLifecycle();
-			stoppedReason = "wall_time_ceiling";
-			break;
-		}
-		if (cleanupError) {
-			disposeCellLifecycle();
-			throw cleanupError;
-		}
-		const ended = new Date();
-		const secrets = Object.entries(process.env)
-			.filter(([key]) => /key|token|secret|password/iu.test(key))
-			.map(([, value]) => value ?? "");
-		const safeAnswer = String(redact(agentResult.answer, secrets));
-		const safeTranscript = String(redact(agentResult.transcript, secrets));
-		const safeEvents = redact(agentResult.events, secrets) as ToolEvent[];
-		await writeFile(join(layout.transcript, "answer.txt"), `${safeAnswer}\n`, {
-			mode: 0o600,
-		});
-		await writeFile(
-			join(layout.transcript, "full.txt"),
-			`${safeTranscript}\n`,
-			{ mode: 0o600 },
-		);
-		await writeFile(
-			join(layout.transcript, "provider.jsonl"),
-			agentResult.providerRecords
-				.map((record) => JSON.stringify(redact(record, secrets)))
-				.join("\n") + (agentResult.providerRecords.length ? "\n" : ""),
-			{ mode: 0o600 },
-		);
-		await writeFile(
-			join(layout.transcript, "interface.jsonl"),
-			safeEvents.map((event) => JSON.stringify(event)).join("\n") +
-				(safeEvents.length ? "\n" : ""),
-			{ mode: 0o600 },
-		);
-		const infrastructure = infrastructureError
-			? infrastructureFailure(task, cell.cell_id, infrastructureError)
-			: null;
-		let grade: GradeResult;
-		try {
-			grade = infrastructure
-				? infrastructure.grade
-				: await gradeRun({
-						benchmarkRoot,
-						runRoot: layout.root,
-						runId: cell.cell_id,
-						task,
-						arm: cell.arm,
-						blenderExecutable: options.blenderExecutable,
-						fixtureHashBefore: entry.artifact_sha256,
-						signal: controller.signal,
-					});
-		} catch (error) {
-			disposeCellLifecycle();
+				process.env,
+				agentCommand.credential_environment_variables,
+			);
+			const started = new Date();
+			let blenderPid: number | null = null;
+			let launchSeconds: number | null = null;
+			let agentResult: AgentResult;
+			let infrastructureError: Error | null = null;
+			try {
+				await assertPortClosed(port);
+				if (options.live) {
+					if (!options.addonPath)
+						throw new Error(
+							"Live execution requires the exact pinned addon path",
+						);
+					const blenderExecutable =
+						options.blenderExecutable ?? process.env.BLENDER_EXECUTABLE;
+					if (!blenderExecutable)
+						throw new Error(
+							"Live execution requires the pinned Blender executable",
+						);
+					const startup = join(layout.workspace, "benchmark-startup.py");
+					await writeBlenderStartup(startup, port, options.addonPath);
+					const launchStarted = process.hrtime.bigint();
+					const blender = await spawnOwned(
+						layout.processRegistry,
+						cell.cell_id,
+						"blender",
+						blenderExecutable,
+						[
+							"--factory-startup",
+							task.fixture.source_artifact
+								? join(layout.fixture, task.fixture.source_artifact)
+								: "",
+							"--python",
+							startup,
+						],
+						{
+							cwd: layout.workspace,
+							env: environment,
+							port,
+							stdoutPath: join(layout.logs, "blender.stdout.log"),
+							stderrPath: join(layout.logs, "blender.stderr.log"),
+						},
+					);
+					blenderPid = blender.pid ?? null;
+					await waitForListener(port, 45_000, controller.signal);
+					launchSeconds = Number(process.hrtime.bigint() - launchStarted) / 1e9;
+				}
+				agentResult = await options.adapter.run({
+					cell,
+					task,
+					runRoot: layout.root,
+					port,
+					environment,
+					baseInstructions,
+					conditionInstructions: arms.arms[cell.arm].condition_instructions,
+					signal: controller.signal,
+				});
+			} catch (error) {
+				infrastructureError = error as Error;
+				agentResult = {
+					answer: `Agent adapter crashed: ${(error as Error).message}`,
+					transcript: String((error as Error).stack ?? error),
+					providerRecords: [],
+					events: [],
+					usage: {},
+					cache: {},
+					agentTurns: 0,
+					retries: 0,
+					agentPid: null,
+					timedOut: false,
+				};
+			}
+			let cleanupError: unknown;
+			try {
+				await cleanupOwnedProcesses(layout.processRegistry);
+			} catch (error) {
+				cleanupError = error;
+			}
 			if (hostSignal) {
+				disposeCellLifecycle();
 				process.kill(process.pid, hostSignal);
 				throw new Error(`Benchmark interrupted by ${hostSignal}`);
 			}
@@ -569,85 +510,145 @@ export async function runSweep(options: {
 				stoppedReason = "wall_time_ceiling";
 				break;
 			}
-			throw error;
-		}
-		if (hostSignal) {
+			if (cleanupError) {
+				throw cleanupError;
+			}
+			const ended = new Date();
+			const secrets = Object.entries(process.env)
+				.filter(([key]) => /key|token|secret|password/iu.test(key))
+				.map(([, value]) => value ?? "");
+			const safeAnswer = String(redact(agentResult.answer, secrets));
+			const safeTranscript = String(redact(agentResult.transcript, secrets));
+			const safeEvents = redact(agentResult.events, secrets) as ToolEvent[];
+			await writeFile(join(layout.transcript, "answer.txt"), `${safeAnswer}\n`, {
+				mode: 0o600,
+			});
+			await writeFile(
+				join(layout.transcript, "full.txt"),
+				`${safeTranscript}\n`,
+				{ mode: 0o600 },
+			);
+			await writeFile(
+				join(layout.transcript, "provider.jsonl"),
+				agentResult.providerRecords
+					.map((record) => JSON.stringify(redact(record, secrets)))
+					.join("\n") + (agentResult.providerRecords.length ? "\n" : ""),
+				{ mode: 0o600 },
+			);
+			await writeFile(
+				join(layout.transcript, "interface.jsonl"),
+				safeEvents.map((event) => JSON.stringify(event)).join("\n") +
+					(safeEvents.length ? "\n" : ""),
+				{ mode: 0o600 },
+			);
+			const infrastructure = infrastructureError
+				? infrastructureFailure(task, cell.cell_id, infrastructureError)
+				: null;
+			let grade: GradeResult;
+			try {
+				grade = infrastructure
+					? infrastructure.grade
+					: await gradeRun({
+							benchmarkRoot,
+							runRoot: layout.root,
+							runId: cell.cell_id,
+							task,
+							arm: cell.arm,
+							blenderExecutable: options.blenderExecutable,
+							fixtureHashBefore: entry.artifact_sha256,
+							signal: controller.signal,
+						});
+			} catch (error) {
+				if (hostSignal) {
+					disposeCellLifecycle();
+					process.kill(process.pid, hostSignal);
+					throw new Error(`Benchmark interrupted by ${hostSignal}`);
+				}
+				if (campaignExpired) {
+					stoppedReason = "wall_time_ceiling";
+					break;
+				}
+				throw error;
+			}
+			if (hostSignal) {
+				disposeCellLifecycle();
+				process.kill(process.pid, hostSignal);
+				throw new Error(`Benchmark interrupted by ${hostSignal}`);
+			}
+			if (campaignExpired) {
+				stoppedReason = "wall_time_ceiling";
+				break;
+			}
+			if (
+				detectPolicyViolations(cell.arm, safeEvents).length &&
+				grade.status !== "policy_violation"
+			)
+				throw new Error("Policy grading inconsistency");
+			const fixtureAfter = await currentFixtureHash(layout.root, task);
+			const cost = measuredCost(agentResult.usage);
+			const record = await buildAttemptRecord({
+				cell,
+				task,
+				runId: cell.cell_id,
+				runRoot: layout.root,
+				fixtureHashBefore: entry.artifact_sha256,
+				fixtureHashAfter: fixtureAfter,
+				baseInstructions,
+				conditionInstructions: arms.arms[cell.arm].condition_instructions,
+				interfaceSurface: arms.arms[cell.arm].condition_instructions,
+				fullTranscript: safeTranscript,
+				events: safeEvents,
+				answer: safeAnswer,
+				grade,
+				validity: infrastructure?.validity,
+				startedAt: started.toISOString(),
+				endedAt: ended.toISOString(),
+				wallSeconds: (ended.getTime() - started.getTime()) / 1000,
+				port,
+				versions: {
+					...config.versions,
+					model_provider: config.model.provider,
+					model_id: config.model.id,
+					effort: config.model.effort,
+					agent_cli: config.model.agent_cli,
+				},
+				usage: {
+					...agentResult.usage,
+					api_cost_usd: cost,
+					pricing_source: cost === null ? null : "provider-reported",
+				},
+				cache: agentResult.cache,
+				timing: {
+					blender_launch_seconds: launchSeconds,
+					timed_out: agentResult.timedOut ?? false,
+				},
+				blenderPid,
+				agentPid: agentResult.agentPid,
+				processLogPaths: [
+					"logs/agent.stdout.log",
+					"logs/agent.stderr.log",
+					"logs/blender.stdout.log",
+					"logs/blender.stderr.log",
+				],
+				offlineTokenCount: (text) => encode(text).length,
+			});
+			record.trajectory.agent_turns = agentResult.agentTurns;
+			record.trajectory.retries = agentResult.retries;
+			assertValidAttempt(record);
+			await appendJsonl(resultsPath, record);
+			await writeJsonAtomic(join(layout.root, "attempt.json"), record);
+			attempted += 1;
+			if (hostSignal) {
+				disposeCellLifecycle();
+				process.kill(process.pid, hostSignal);
+				throw new Error(`Benchmark interrupted by ${hostSignal}`);
+			}
+			if (campaignExpired) {
+				stoppedReason = "wall_time_ceiling";
+				break;
+			}
+		} finally {
 			disposeCellLifecycle();
-			process.kill(process.pid, hostSignal);
-			throw new Error(`Benchmark interrupted by ${hostSignal}`);
-		}
-		if (campaignExpired) {
-			disposeCellLifecycle();
-			stoppedReason = "wall_time_ceiling";
-			break;
-		}
-		if (
-			detectPolicyViolations(cell.arm, safeEvents).length &&
-			grade.status !== "policy_violation"
-		)
-			throw new Error("Policy grading inconsistency");
-		const fixtureAfter = await currentFixtureHash(layout.root, task);
-		const cost = measuredCost(agentResult.usage);
-		const record = await buildAttemptRecord({
-			cell,
-			task,
-			runId: cell.cell_id,
-			runRoot: layout.root,
-			fixtureHashBefore: entry.artifact_sha256,
-			fixtureHashAfter: fixtureAfter,
-			baseInstructions,
-			conditionInstructions: arms.arms[cell.arm].condition_instructions,
-			interfaceSurface: arms.arms[cell.arm].condition_instructions,
-			fullTranscript: safeTranscript,
-			events: safeEvents,
-			answer: safeAnswer,
-			grade,
-			validity: infrastructure?.validity,
-			startedAt: started.toISOString(),
-			endedAt: ended.toISOString(),
-			wallSeconds: (ended.getTime() - started.getTime()) / 1000,
-			port,
-			versions: {
-				...config.versions,
-				model_provider: config.model.provider,
-				model_id: config.model.id,
-				effort: config.model.effort,
-				agent_cli: config.model.agent_cli,
-			},
-			usage: {
-				...agentResult.usage,
-				api_cost_usd: cost,
-				pricing_source: cost === null ? null : "provider-reported",
-			},
-			cache: agentResult.cache,
-			timing: {
-				blender_launch_seconds: launchSeconds,
-				timed_out: agentResult.timedOut ?? false,
-			},
-			blenderPid,
-			agentPid: agentResult.agentPid,
-			processLogPaths: [
-				"logs/agent.stdout.log",
-				"logs/agent.stderr.log",
-				"logs/blender.stdout.log",
-				"logs/blender.stderr.log",
-			],
-			offlineTokenCount: (text) => encode(text).length,
-		});
-		record.trajectory.agent_turns = agentResult.agentTurns;
-		record.trajectory.retries = agentResult.retries;
-		assertValidAttempt(record);
-		await appendJsonl(resultsPath, record);
-		await writeJsonAtomic(join(layout.root, "attempt.json"), record);
-		attempted += 1;
-		disposeCellLifecycle();
-		if (hostSignal) {
-			process.kill(process.pid, hostSignal);
-			throw new Error(`Benchmark interrupted by ${hostSignal}`);
-		}
-		if (campaignExpired) {
-			stoppedReason = "wall_time_ceiling";
-			break;
 		}
 	}
 	return {
