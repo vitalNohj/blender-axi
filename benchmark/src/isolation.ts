@@ -137,11 +137,12 @@ export async function registerSpawnedProcess(
 		await registerOwnedProcess(path, owned);
 		return owned;
 	} catch (error) {
+		const exit = new Promise<void>((resolvePromise) =>
+			child.once("exit", () => resolvePromise()),
+		);
 		signalProcess(owned, "SIGKILL");
 		if (child.exitCode === null && child.signalCode === null)
-			await new Promise<void>((resolvePromise) =>
-				child.once("exit", () => resolvePromise()),
-			);
+			await exit;
 		throw error;
 	}
 }
