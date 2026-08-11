@@ -16,6 +16,7 @@ import {
 	assertPortClosed,
 	chooseUniquePort,
 	cleanupOwnedProcesses,
+	cleanupRunRootProcesses,
 	createRunLayout,
 	sanitizedEnvironment,
 	spawnOwned,
@@ -460,7 +461,10 @@ export async function runSweep(options: {
 						],
 						{
 							cwd: layout.workspace,
-							env: environment,
+							// The pinned addon path is a host path, so it is handed only to
+							// Blender. The agent shares the sanitized environment and must
+							// not be able to read it from there or from the startup script.
+							env: { ...environment, BENCHMARK_ADDON_PATH: options.addonPath },
 							port,
 							stdoutPath: join(layout.logs, "blender.stdout.log"),
 							stderrPath: join(layout.logs, "blender.stderr.log"),
@@ -498,6 +502,10 @@ export async function runSweep(options: {
 			let cleanupError: unknown;
 			try {
 				await cleanupOwnedProcesses(layout.processRegistry);
+				// The registry only knows about processes the harness spawned. Sweep
+				// the run root as well so anything the agent started itself cannot
+				// outlive the cell on any exit path.
+				await cleanupRunRootProcesses(layout.root);
 			} catch (error) {
 				cleanupError = error;
 			}

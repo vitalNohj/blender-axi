@@ -164,6 +164,69 @@ function isAlive(pid: number): boolean {
 	}
 }
 
+// Processes the agent starts itself are unregistrable by construction: only
+// harness spawn sites call spawnOwned/registerSpawnedProcess. The first live
+// rerun ended with an empty registry while a Blender the agent's CLI had
+// launched still held port 9876, so the registry alone cannot guarantee a clean
+// cell. Sweeping by run root catches those descendants regardless of who
+// spawned them, without touching unrelated processes on the host.
+export async function findRunRootProcesses(
+	runRoot: string,
+	inspect: (root: string) => Promise<string> = defaultProcessInspector,
+): Promise<number[]> {
+	const listing = await inspect(runRoot).catch(() => "");
+	const pids = new Set<number>();
+	for (const line of listing.split("\n")) {
+		const pid = Number.parseInt(line.trim().split(/\s+/u)[0] ?? "", 10);
+		if (Number.isInteger(pid) && pid > 0 && pid !== process.pid) pids.add(pid);
+	}
+	return [...pids];
+}
+
+async function defaultProcessInspector(runRoot: string): Promise<string> {
+	const { execFile } = await import("node:child_process");
+	return new Promise((resolvePromise) => {
+		// lsof reports every process with a file or cwd inside the run root,
+		// which is exactly the set a cell is allowed to leave behind: none.
+		execFile(
+			"lsof",
+			["-t", "+D", runRoot],
+			{ timeout: 10_000 },
+			(_error, stdout) => resolvePromise(stdout ?? ""),
+		);
+	});
+}
+
+export async function cleanupRunRootProcesses(
+	runRoot: string,
+	inspect?: (root: string) => Promise<string>,
+): Promise<number[]> {
+	const pids = await findRunRootProcesses(runRoot, inspect);
+	const reaped: number[] = [];
+	for (const pid of pids) {
+		if (!isAlive(pid)) continue;
+		reaped.push(pid);
+		try {
+			process.kill(pid, "SIGTERM");
+		} catch {
+			// Already exited between the scan and the signal.
+		}
+	}
+	if (!reaped.length) return reaped;
+	const deadline = Date.now() + 5_000;
+	while (reaped.some((pid) => isAlive(pid)) && Date.now() < deadline)
+		await new Promise((resolvePromise) => setTimeout(resolvePromise, 50));
+	for (const pid of reaped) {
+		if (!isAlive(pid)) continue;
+		try {
+			process.kill(pid, "SIGKILL");
+		} catch {
+			// Already exited during the grace period.
+		}
+	}
+	return reaped;
+}
+
 export async function cleanupOwnedProcesses(
 	registryPath: string,
 	timeoutMilliseconds = 15_000,
@@ -218,13 +281,63 @@ export function sanitizedEnvironment(
 	return environment;
 }
 
+// The startup script runs inside the agent's workspace, so anything it
+// contains can surface in the agent's tool transcript. Embedding the pinned
+// addon's absolute host path made a harness-authored "/Users/" string appear in
+// a tool response and cost a cell a policy violation the agent did not cause.
+// The path is passed through the Blender process environment instead, which
+// keeps the real deny rule intact for genuinely agent-originated host paths.
+//
+// The script also has to register the addon, not merely import it. Loading the
+// module alone leaves the Scene properties unregistered, and the addon's
+// command dispatcher reads scene.blendermcp_use_polyhaven before dispatching
+// any handler, so every command failed with "'Scene' object has no attribute
+// 'blendermcp_use_polyhaven'". That made the AXI probe fail against a healthy
+// listener and drove --launch to start a second Blender on the default port.
+// The pinned server is created and started before register() so the addon's
+// register-time autostart finds a running server and cannot bind 9876.
 export async function writeBlenderStartup(
 	path: string,
 	port: number,
 	addonPath: string,
 ): Promise<void> {
-	const content = `import bpy\nimport importlib.util\nfrom pathlib import Path\naddon_path = Path(${JSON.stringify(addonPath)})\nspec = importlib.util.spec_from_file_location("benchmark_blendermcp_addon", addon_path)\nmodule = importlib.util.module_from_spec(spec)\nspec.loader.exec_module(module)\ntry:\n    existing = getattr(bpy.types, "blendermcp_server", None)\n    if existing:\n        existing.stop()\nexcept Exception:\n    pass\nserver = module.BlenderMCPServer(port=${port})\nserver.start()\nbpy.types.blendermcp_server = server\nprint("BENCHMARK_LISTENER_READY:${port}", flush=True)\n`;
-	await writeFile(path, content, { mode: 0o400 });
+	if (!addonPath.startsWith("/"))
+		throw new Error(
+			"The pinned addon path must be absolute so the startup script can resolve it",
+		);
+	const lines = [
+		"import bpy",
+		"import importlib.util",
+		"import os",
+		"from pathlib import Path",
+		// Resolved from the Blender process environment so the host path never
+		// reaches the agent-readable script or, through it, the tool transcript.
+		'addon_path = Path(os.environ["BENCHMARK_ADDON_PATH"])',
+		'spec = importlib.util.spec_from_file_location("benchmark_blendermcp_addon", addon_path)',
+		"module = importlib.util.module_from_spec(spec)",
+		"spec.loader.exec_module(module)",
+		"try:",
+		'    existing = getattr(bpy.types, "blendermcp_server", None)',
+		"    if existing:",
+		"        existing.stop()",
+		"except Exception:",
+		"    pass",
+		// Install the pinned server before register() runs. The addon auto-starts
+		// at register time and would otherwise construct its own server on the
+		// default port; finding one already running makes that a no-op.
+		`server = module.BlenderMCPServer(port=${port})`,
+		"server.start()",
+		"bpy.types.blendermcp_server = server",
+		// register() defines the Scene properties the addon's command dispatcher
+		// reads before dispatching any handler. Without it every command fails
+		// with "'Scene' object has no attribute 'blendermcp_use_polyhaven'".
+		"module.register()",
+		'scene = getattr(bpy.context, "scene", None)',
+		"if scene is not None:",
+		`    scene.blendermcp_port = ${port}`,
+		`print("BENCHMARK_LISTENER_READY:${port}", flush=True)`,
+	];
+	await writeFile(path, `${lines.join("\n")}\n`, { mode: 0o400 });
 }
 
 export async function spawnOwned(

@@ -31,6 +31,50 @@ interface ProviderEnvelope {
 	cache?: Partial<AttemptRecord["cache"]>;
 }
 
+// A cell only measures the agent if the provider actually answered. The first
+// live rerun recorded a cell as valid/wrong_artifact after four consecutive
+// provider errors (502, overloaded) because the wrapper still emitted a
+// well-formed empty envelope and exited 0, so nothing threw. The terminal
+// failure signal is present in the record stream, so read it directly: an
+// exhausted retry chain, or a run whose every assistant turn errored without
+// producing content, is infrastructure failure rather than a wrong answer.
+export function providerFailure(
+	records: unknown[],
+): { reason: string } | null {
+	const objects = records.filter(
+		(record): record is Record<string, unknown> =>
+			Boolean(record) && typeof record === "object",
+	);
+	const exhausted = objects.find(
+		(record) => record.type === "auto_retry_end" && record.success === false,
+	);
+	if (exhausted)
+		return {
+			reason:
+				typeof exhausted.finalError === "string"
+					? exhausted.finalError
+					: "provider retries exhausted",
+		};
+	const assistantTurns = objects
+		.filter((record) => record.type === "message_end")
+		.map((record) => record.message)
+		.filter(
+			(message): message is Record<string, unknown> =>
+				Boolean(message) &&
+				typeof message === "object" &&
+				(message as Record<string, unknown>).role === "assistant",
+		);
+	if (!assistantTurns.length) return null;
+	const everyTurnFailed = assistantTurns.every((message) => {
+		const content = message.content;
+		const hasContent = Array.isArray(content) && content.length > 0;
+		return message.stopReason === "error" && !hasContent;
+	});
+	return everyTurnFailed
+		? { reason: "every provider turn ended in an error with no response" }
+		: null;
+}
+
 export class CommandAgentAdapter implements AgentAdapter {
 	constructor(private readonly benchmarkRoot: string) {}
 
@@ -170,6 +214,16 @@ export class CommandAgentAdapter implements AgentAdapter {
 				}
 				if (agentPid === undefined) {
 					reject(new Error("Provider adapter failed to start"));
+					return;
+				}
+				const failure = timedOut ? null : providerFailure(records);
+				if (failure) {
+					reject(
+						new Error(
+							"Provider never produced a response: " +
+								String(redact(failure.reason, secrets)),
+						),
+					);
 					return;
 				}
 				resolvePromise({

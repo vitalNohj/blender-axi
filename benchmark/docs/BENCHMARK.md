@@ -120,6 +120,34 @@ The runner checks the invalid-attempt and critical-failure ceilings before start
 
 Records distinguish total first-turn context from marginal interface surface. They capture provider usage, cache use, normalized o200k counts, tool bytes and calls, nested tool events, turns, retries, request timing, paths, hashes, strictly positive provider-reported cost when available, outcomes, scores, validity, and replacement linkage. Provider-unavailable metrics are null. Secrets are removed from text and sensitive-key values before persistence.
 
+## Cell validity and isolation invariants
+
+A cell only measures the agent if the provider actually answered. An exhausted
+retry chain, or a run whose every assistant turn ended in an error with no
+content, is recorded as `infrastructure_invalid` and never as a graded outcome.
+A well-formed but empty wrapper envelope with a zero exit status is not
+evidence of a wrong answer.
+
+The Blender startup script runs inside the agent workspace, so it must never
+contain host paths. The pinned addon path is passed to Blender through
+`BENCHMARK_ADDON_PATH`, which is added only to the Blender process environment
+and not to the sanitized environment the agent shares. The `/Users/` deny rule
+is unchanged and still applies to genuinely agent-originated paths, including
+paths an agent discovers and echoes back.
+
+The startup script must call the addon's `register()`, not merely import it.
+The addon's command dispatcher reads scene properties that only `register()`
+defines, so an unregistered addon accepts connections and then fails every
+command. The pinned server is constructed, started, and installed before
+`register()` runs, which makes the addon's register-time autostart a no-op and
+prevents it from binding its default port 9876.
+
+Cleanup is not registry-only. The owned-process registry can only contain
+processes the harness spawned, so each cell also sweeps its run root for
+surviving processes regardless of who started them. Success, provider failure,
+policy failure, timeout, campaign stop, and host interruption must each leave no
+Blender, BlenderMCP, wrapper, or benchmark process and no port-9876 listener.
+
 ## Deterministic grading
 
 Grade existing attempts without asking an agent:
