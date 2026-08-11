@@ -20,6 +20,12 @@ function launchExpression(port: number): string {
 	return `import bpy\nbpy.context.scene.blendermcp_port=${port}\ndef _start():\n try:\n  bpy.ops.blendermcp.start_server()\n  print("blender-axi: server started on port ${port}")\n except Exception as exc:\n  print("blender-axi: autostart failed: %s" % exc)\n return None\nbpy.app.timers.register(_start, first_interval=0.5)`;
 }
 
+export function shouldDetachBlender(
+	environment: NodeJS.ProcessEnv = process.env,
+): boolean {
+	return environment.BENCHMARK_RUN_DIR === undefined;
+}
+
 export async function launchBlender(context: SessionContext): Promise<number> {
 	mkdirSync(context.stateDir, { recursive: true });
 	const logPath = join(context.stateDir, "blender.log");
@@ -28,7 +34,7 @@ export async function launchBlender(context: SessionContext): Promise<number> {
 		process.env.BLENDER_AXI_BLENDER ?? DEFAULT_BLENDER,
 		["--python-expr", launchExpression(context.port)],
 		{
-			detached: true,
+			detached: shouldDetachBlender(),
 			stdio: ["ignore", log, log],
 		},
 	);

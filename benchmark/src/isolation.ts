@@ -4,7 +4,6 @@ import {
 	chmod,
 	mkdir,
 	readFile,
-	readdir,
 	rm,
 	writeFile,
 } from "node:fs/promises";
@@ -204,15 +203,10 @@ async function defaultProcessInspector(runRoot: string): Promise<string> {
 			.map((line) => Number.parseInt(line.trim(), 10))
 			.filter((pid) => Number.isInteger(pid) && pid > 0),
 	)];
-	const registeredPids = await findBlenderAxiPids(
-		join(runRoot, "home", ".blender-axi"),
-	);
 	const inspected = await Promise.all(
 		pids.map(
-			(pid) => {
-				if (registeredPids.has(pid))
-					return Promise.resolve(`${pid} BENCHMARK_RUN_DIR=${runRoot}`);
-				return new Promise<string>((resolvePromise, reject) => {
+			(pid) =>
+				new Promise<string>((resolvePromise, reject) => {
 					execFile(
 						"ps",
 						["eww", "-p", String(pid), "-o", "pid=,command="],
@@ -223,35 +217,10 @@ async function defaultProcessInspector(runRoot: string): Promise<string> {
 							else reject(error);
 						},
 					);
-				});
-			},
+				}),
 		),
 	);
 	return inspected.filter(Boolean).join("\n");
-}
-
-async function findBlenderAxiPids(stateRoot: string): Promise<Set<number>> {
-	let entries;
-	try {
-		entries = await readdir(stateRoot, { withFileTypes: true });
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code === "ENOENT") return new Set();
-		throw error;
-	}
-	const pids = new Set<number>();
-	for (const entry of entries) {
-		const path = join(stateRoot, entry.name);
-		if (entry.isDirectory()) {
-			for (const pid of await findBlenderAxiPids(path)) pids.add(pid);
-		} else if (entry.isFile() && entry.name === "blender.pid") {
-			const raw = await readFile(path, "utf8");
-			const pid = Number(raw.trim());
-			if (!Number.isSafeInteger(pid) || pid <= 0)
-				throw new Error(`Invalid Blender PID file: ${path}`);
-			pids.add(pid);
-		}
-	}
-	return pids;
 }
 
 export async function cleanupRunRootProcesses(
