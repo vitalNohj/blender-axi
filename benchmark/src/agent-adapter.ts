@@ -65,34 +65,27 @@ export class CommandAgentAdapter implements AgentAdapter {
 			stdio: ["pipe", "pipe", "pipe"],
 			detached: true,
 		});
-		if (child.pid === undefined)
-			throw new Error("Provider adapter failed to start");
 		const agentPid = child.pid;
-		await registerSpawnedProcess(
-			join(input.runRoot, "owned-processes.json"),
-			child,
-			{
-				role: "agent",
-				port: null,
-				started_at: new Date().toISOString(),
-				executable: config.executable,
-				run_id: input.cell.cell_id,
-				process_group: true,
-			},
-		);
 		const killGroup = (signal: NodeJS.Signals): void => {
+			if (agentPid === undefined) return;
 			try {
 				process.kill(-agentPid, signal);
 			} catch {
 				// The group is already gone; nothing is left to reap.
 			}
 		};
-		return await new Promise<AgentResult>((resolvePromise, reject) => {
+		const completion = new Promise<AgentResult>((resolvePromise, reject) => {
 			let stdout = "";
 			let stderr = "";
 			let timedOut = false;
 			let aborted = input.signal?.aborted ?? false;
 			let escalation: NodeJS.Timeout | null = null;
+			let timer: NodeJS.Timeout | null = null;
+			const cleanup = (): void => {
+				if (timer) clearTimeout(timer);
+				if (escalation) clearTimeout(escalation);
+				input.signal?.removeEventListener("abort", onAbort);
+			};
 			const terminate = (): void => {
 				killGroup("SIGTERM");
 				escalation ??= setTimeout(
@@ -108,18 +101,19 @@ export class CommandAgentAdapter implements AgentAdapter {
 			child.stderr.setEncoding("utf8");
 			child.stdout.on("data", (chunk: string) => (stdout += chunk));
 			child.stderr.on("data", (chunk: string) => (stderr += chunk));
-			child.once("error", reject);
+			child.once("error", (error) => {
+				cleanup();
+				reject(error);
+			});
 			child.stdin.end(prompt);
 			input.signal?.addEventListener("abort", onAbort, { once: true });
 			if (aborted) terminate();
-			const timer = setTimeout(() => {
+			timer = setTimeout(() => {
 				timedOut = true;
 				terminate();
 			}, input.task.timeout_seconds * 1000);
 			child.once("exit", async (code, signal) => {
-				clearTimeout(timer);
-				if (escalation) clearTimeout(escalation);
-				input.signal?.removeEventListener("abort", onAbort);
+				cleanup();
 				// The group leader has exited; sweep any surviving descendant so no
 				// wrapper, MCP server, or Blender process outlives the cell.
 				killGroup("SIGKILL");
@@ -174,6 +168,10 @@ export class CommandAgentAdapter implements AgentAdapter {
 					);
 					return;
 				}
+				if (agentPid === undefined) {
+					reject(new Error("Provider adapter failed to start"));
+					return;
+				}
 				resolvePromise({
 					answer: timedOut ? `${answer}\n[benchmark timeout]` : answer,
 					transcript: `${stdout}\n${stderr}`,
@@ -188,5 +186,20 @@ export class CommandAgentAdapter implements AgentAdapter {
 				});
 			});
 		});
+		void completion.catch(() => undefined);
+		if (agentPid === undefined) return await completion;
+		await registerSpawnedProcess(
+			join(input.runRoot, "owned-processes.json"),
+			child,
+			{
+				role: "agent",
+				port: null,
+				started_at: new Date().toISOString(),
+				executable: config.executable,
+				run_id: input.cell.cell_id,
+				process_group: true,
+			},
+		);
+		return await completion;
 	}
 }

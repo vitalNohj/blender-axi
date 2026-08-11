@@ -156,6 +156,38 @@ describe("adapter timeout propagation", () => {
 	}, 30_000);
 });
 
+describe("provider startup lifecycle", () => {
+	it("rejects when the provider executable cannot start", async () => {
+		const { adapter, runRoot } = await harness("#!/missing-provider-interpreter\n");
+		await expect(
+			adapter.run({
+				cell,
+				task: await p1(30),
+				runRoot,
+				port: 19001,
+				environment: { ...process.env },
+				baseInstructions: "base",
+				conditionInstructions: "condition",
+			}),
+		).rejects.toThrow();
+	}, 10_000);
+
+	it("observes a provider that exits immediately", async () => {
+		const { adapter, runRoot } = await harness("#!/bin/sh\nexit 9\n");
+		await expect(
+			adapter.run({
+				cell,
+				task: await p1(30),
+				runRoot,
+				port: 19001,
+				environment: { ...process.env },
+				baseInstructions: "base",
+				conditionInstructions: "condition",
+			}),
+		).rejects.toThrow("Provider adapter exited with code 9");
+	}, 10_000);
+});
+
 describe("provider process-tree cleanup", () => {
 	it("leaves no surviving grandchild after a timeout", async () => {
 		const { adapter, runRoot } = await harness(
