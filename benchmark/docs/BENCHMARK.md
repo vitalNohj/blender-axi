@@ -4,7 +4,7 @@ This package implements the executable benchmark specified by the 2026-07-30 Ble
 
 ## Safety boundary
 
-The benchmark owns only directories passed through `--runs`, process IDs written to each run's `owned-processes.json`, and unique ports selected from the frozen benchmark range. It never searches for, kills, or modifies arbitrary Blender processes. Port 9876 is treated as external and the preflight refuses when it has a listener; each cell exports `BLENDER_HOST`/`BLENDER_PORT` so the pinned BlenderMCP server addresses that cell's isolated Blender instead of its own 9876 default. Provider processes are spawned as their own process group and torn down by group with SIGKILL escalation, so no wrapper, MCP server, or Blender process survives success, failure, interrupt, or timeout. Fixture source files are copied read-only. Each cell gets a new run directory, HOME, state directory, workspace, output, transcript, logs, artifacts, process registry, and port.
+The benchmark owns only directories passed through `--runs`, registered process groups it spawns, descendant processes that both use files inside a cell's run root and carry that cell's exact `BENCHMARK_RUN_DIR` marker, and unique ports selected from the frozen benchmark range. It never searches for, kills, or modifies arbitrary Blender processes. Port 9876 is treated as external and the preflight refuses when it has a listener; each cell exports `BLENDER_HOST`/`BLENDER_PORT` so the pinned BlenderMCP server addresses that cell's isolated Blender instead of its own 9876 default. Provider processes are spawned as their own process group and torn down by group with SIGKILL escalation, so no wrapper, MCP server, or Blender process survives success, failure, interrupt, or timeout. Fixture source files are copied read-only. Each cell gets a new run directory, HOME, state directory, workspace, output, transcript, logs, artifacts, process registry, and port.
 
 Do not put a primary checkout, user Blender file, or shared Unity project under `--runs`. Never point `BLENDER_MCP_ADDON_PATH` at a modified addon. Generated `.blend`, `.fbx`, `.glb`, render, run, report, scorer, and Unity cache data is ignored by git.
 
@@ -143,9 +143,10 @@ command. The pinned server is constructed, started, and installed before
 prevents it from binding its default port 9876.
 
 Cleanup is not registry-only. The owned-process registry can only contain
-processes the harness spawned, so each cell also sweeps its run root for
-surviving processes regardless of who started them. Success, provider failure,
-policy failure, timeout, campaign stop, and host interruption must each leave no
+processes the harness spawned, so each cell also sweeps for surviving processes
+that use files under its run root and carry its exact `BENCHMARK_RUN_DIR`
+marker, regardless of who started them. Success, provider failure, policy
+failure, timeout, campaign stop, and host interruption must each leave no
 Blender, BlenderMCP, wrapper, or benchmark process and no port-9876 listener.
 
 ## Deterministic grading
