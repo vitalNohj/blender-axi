@@ -40,6 +40,40 @@ describe("isolation and redaction", () => {
 		expect(environment.BLENDER_AXI_PORT).toBe(String(port));
 	});
 
+	it("does not leak an interpreter-bearing HOME into the MCP arm", async () => {
+		const root = await mkdtemp(join(tmpdir(), "blend-bench-uvhome-"));
+		const layout = {
+			root,
+			fixture: join(root, "fixture"),
+			workspace: join(root, "workspace"),
+			output: join(root, "output"),
+			logs: join(root, "logs"),
+			transcript: join(root, "transcript"),
+			artifacts: join(root, "artifacts"),
+			oracles: join(root, "oracles"),
+			processRegistry: join(root, "owned-processes.json"),
+		};
+		// uvx resolves its managed interpreter and cache under HOME. Each cell gets
+		// a fresh empty HOME, so an unpinned uvx falls back to the system python
+		// and cannot satisfy the pinned server's requires-python floor. The staged
+		// launcher must therefore carry explicit pins rather than inherit them.
+		const environment = sanitizedEnvironment(
+			layout,
+			24_311,
+			{
+				PATH: "/bin",
+				HOME: "/Users/someone",
+				UV_CACHE_DIR: "/Users/someone/.cache/uv",
+				UV_PYTHON_INSTALL_DIR: "/Users/someone/.local/share/uv/python",
+			},
+			[],
+		);
+		expect(environment.HOME).toBe(join(root, "home"));
+		expect(environment.HOME).not.toBe("/Users/someone");
+		expect(environment.UV_CACHE_DIR).toBeUndefined();
+		expect(environment.UV_PYTHON_INSTALL_DIR).toBeUndefined();
+	});
+
 	it("kills only registered owned fake processes", async () => {
 		const root = await mkdtemp(join(tmpdir(), "blend-bench-process-"));
 		const registry = join(root, "owned-processes.json");
