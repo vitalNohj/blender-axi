@@ -173,15 +173,44 @@ describe("D4: agent-launched descendants cannot outlive a cell", () => {
 		const root = await mkdtemp(join(tmpdir(), "blend-bench-sweep-"));
 		// A Blender the agent's own CLI launched: absent from the registry,
 		// present in the run root.
-		const found = await findRunRootProcesses(root, async () => "424242\n");
+		const found = await findRunRootProcesses(
+			root,
+			async () => `424242 blender BENCHMARK_RUN_DIR=${root}\n`,
+		);
 		expect(found).toEqual([424242]);
+	});
+
+	it("does not claim an unrelated process using a run-root file", async () => {
+		const root = await mkdtemp(join(tmpdir(), "blend-bench-sweep-"));
+		const found = await findRunRootProcesses(
+			root,
+			async () => "424242 tail workspace/cell.log\n",
+		);
+		expect(found).toEqual([]);
+	});
+
+	it("does not accept a marker for a different run root", async () => {
+		const root = await mkdtemp(join(tmpdir(), "blend-bench-sweep-"));
+		const found = await findRunRootProcesses(
+			root,
+			async () => `424242 blender BENCHMARK_RUN_DIR=${root}-other\n`,
+		);
+		expect(found).toEqual([]);
+	});
+
+	it("propagates process inspection failures", async () => {
+		const root = await mkdtemp(join(tmpdir(), "blend-bench-sweep-"));
+		const failure = new Error("process inspection timed out");
+		await expect(
+			findRunRootProcesses(root, async () => Promise.reject(failure)),
+		).rejects.toBe(failure);
 	});
 
 	it("ignores the benchmark process itself", async () => {
 		const root = await mkdtemp(join(tmpdir(), "blend-bench-sweep-"));
 		const found = await findRunRootProcesses(
 			root,
-			async () => `${process.pid}\n`,
+			async () => `${process.pid} node BENCHMARK_RUN_DIR=${root}\n`,
 		);
 		expect(found).toEqual([]);
 	});
@@ -201,7 +230,7 @@ describe("D4: agent-launched descendants cannot outlive a cell", () => {
 		);
 		const reaped = await cleanupRunRootProcesses(
 			root,
-			async () => `${pid}\n`,
+			async () => `${pid} sleep BENCHMARK_RUN_DIR=${root}\n`,
 		);
 		expect(reaped).toEqual([pid]);
 		expect(await exited).toBe("SIGTERM");

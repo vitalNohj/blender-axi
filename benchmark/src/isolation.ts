@@ -4,6 +4,7 @@ import {
 	chmod,
 	mkdir,
 	readFile,
+	readdir,
 	rm,
 	writeFile,
 } from "node:fs/promises";
@@ -174,9 +175,15 @@ export async function findRunRootProcesses(
 	runRoot: string,
 	inspect: (root: string) => Promise<string> = defaultProcessInspector,
 ): Promise<number[]> {
-	const listing = await inspect(runRoot).catch(() => "");
+	const listing = await inspect(runRoot);
+	const escapedRunRoot = runRoot.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+	const ownershipMarker = new RegExp(
+		`(?:^|\\s)BENCHMARK_RUN_DIR=${escapedRunRoot}(?:\\s|$)`,
+		"u",
+	);
 	const pids = new Set<number>();
 	for (const line of listing.split("\n")) {
+		if (!ownershipMarker.test(line)) continue;
 		const pid = Number.parseInt(line.trim().split(/\s+/u)[0] ?? "", 10);
 		if (Number.isInteger(pid) && pid > 0 && pid !== process.pid) pids.add(pid);
 	}
@@ -185,16 +192,66 @@ export async function findRunRootProcesses(
 
 async function defaultProcessInspector(runRoot: string): Promise<string> {
 	const { execFile } = await import("node:child_process");
-	return new Promise((resolvePromise) => {
-		// lsof reports every process with a file or cwd inside the run root,
-		// which is exactly the set a cell is allowed to leave behind: none.
-		execFile(
-			"lsof",
-			["-t", "+D", runRoot],
-			{ timeout: 10_000 },
-			(_error, stdout) => resolvePromise(stdout ?? ""),
-		);
+	const candidates = await new Promise<string>((resolvePromise, reject) => {
+		execFile("lsof", ["-t", "+D", runRoot], { timeout: 10_000 }, (error, stdout) => {
+			if (!error || error.code === 1) resolvePromise(stdout ?? "");
+			else reject(error);
+		});
 	});
+	const pids = [...new Set(
+		candidates
+			.split("\n")
+			.map((line) => Number.parseInt(line.trim(), 10))
+			.filter((pid) => Number.isInteger(pid) && pid > 0),
+	)];
+	const registeredPids = await findBlenderAxiPids(
+		join(runRoot, "home", ".blender-axi"),
+	);
+	const inspected = await Promise.all(
+		pids.map(
+			(pid) => {
+				if (registeredPids.has(pid))
+					return Promise.resolve(`${pid} BENCHMARK_RUN_DIR=${runRoot}`);
+				return new Promise<string>((resolvePromise, reject) => {
+					execFile(
+						"ps",
+						["eww", "-p", String(pid), "-o", "pid=,command="],
+						{ timeout: 10_000 },
+						(error, stdout) => {
+							if (!error) resolvePromise(stdout ?? "");
+							else if (error.code === 1 && !isAlive(pid)) resolvePromise("");
+							else reject(error);
+						},
+					);
+				});
+			},
+		),
+	);
+	return inspected.filter(Boolean).join("\n");
+}
+
+async function findBlenderAxiPids(stateRoot: string): Promise<Set<number>> {
+	let entries;
+	try {
+		entries = await readdir(stateRoot, { withFileTypes: true });
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "ENOENT") return new Set();
+		throw error;
+	}
+	const pids = new Set<number>();
+	for (const entry of entries) {
+		const path = join(stateRoot, entry.name);
+		if (entry.isDirectory()) {
+			for (const pid of await findBlenderAxiPids(path)) pids.add(pid);
+		} else if (entry.isFile() && entry.name === "blender.pid") {
+			const raw = await readFile(path, "utf8");
+			const pid = Number(raw.trim());
+			if (!Number.isSafeInteger(pid) || pid <= 0)
+				throw new Error(`Invalid Blender PID file: ${path}`);
+			pids.add(pid);
+		}
+	}
+	return pids;
 }
 
 export async function cleanupRunRootProcesses(
