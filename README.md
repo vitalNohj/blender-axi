@@ -6,7 +6,7 @@ Blender AXI is an agent-facing CLI that speaks the unmodified stock [BlenderMCP 
 
 | Context | Results | Control |
 | --- | --- | --- |
-| **Zero resident tool-schema cost until invoked.** Compact [TOON](https://github.com/toon-format/toon) by default, JSON on request. | **One request can build, save, export, and render.** Failures include the actionable traceback and stdout printed before the exception. | **Sessions are explicit.** Named ports, opt-in launch, and session-owned stop behavior prevent silent fallback to another Blender. |
+| **Zero resident tool-schema cost until invoked.** Compact [TOON](https://github.com/toon-format/toon) by default, JSON on request. | **One `execute_code` request can build, save, export, and render.** Failures include the actionable traceback and stdout printed before the exception. | **Sessions are explicit.** Named ports, opt-in launch, and session-owned stop behavior prevent silent fallback to another Blender. |
 
 ```sh
 blender-axi ping
@@ -27,7 +27,7 @@ MCP tool schemas are resident context: they are presented at session start wheth
 The savings continue after invocation:
 
 - **Compact by default.** Structured output uses TOON rather than brace-and-quote-heavy JSON. `scene` leads with aggregate counts; object rows are opt-in.
-- **Work is composed before transport.** `build` wraps the supplied Python and requested save, GLB, render, and summary actions into one `execute_code` request.
+- **Work is composed before transport.** After a separate `get_scene_info` connectivity check, `build` wraps the supplied Python and requested save, GLB, render, and summary actions into one `execute_code` request.
 - **Failures are complete.** `exec` and `build` return the exception, filtered Python traceback, and pre-failure stdout in the same response.
 - **Chatty scripts stay bounded.** Stdout and failure detail longer than 1,500 characters are truncated with their total length and a `--full` recovery hint. Success keeps the head; failure output keeps the tail where the last progress line and failing frame usually live.
 - **Connection intent is visible.** Ordinary commands never launch Blender. A named session never falls back to the default listener.
@@ -39,8 +39,9 @@ coding agent
     │  invokes only when Blender work is needed
     ▼
 blender-axi CLI
-    │  one JSON request over 127.0.0.1:<session-port>
-    ▼
+    ├─ get_scene_info connectivity check ── fresh TCP connection ──┐
+    └─ execute_code action request ──────── fresh TCP connection ──┤
+                                                                   ▼
 stock BlenderMCP v1.2 TCP listener
     │  execute_code inside the GUI Blender process
     ▼
@@ -49,7 +50,7 @@ user Python → save → GLB export → renders → scene summary
     └─ TOON result, or JSON with --json
 ```
 
-The CLI creates a fresh TCP connection per command and uses the addon's existing `get_scene_info` and `execute_code` messages. For Python execution it injects a small prelude that captures stdout and tracebacks, supplies common Blender globals, and re-resolves Blender context after `bpy.ops.wm.read_homefile()`. Save, export, render, and scene-summary steps then run sequentially inside the same addon request.
+The CLI creates a fresh TCP connection per request. A build first sends `get_scene_info` as a connectivity check, then sends one `execute_code` action request containing the script and every requested save, export, render, and scene-summary step. For Python execution it injects a small prelude that captures stdout and tracebacks, supplies common Blender globals, and re-resolves Blender context after `bpy.ops.wm.read_homefile()`.
 
 ## Install
 
@@ -163,7 +164,7 @@ traceback: |
   NameError: name 'bpu' is not defined
 ```
 
-### Build, save, export, and render in one request
+### Build, save, export, and render in one execution request
 
 ```sh
 blender-axi build model.py \
@@ -172,7 +173,7 @@ blender-axi build model.py \
   --render front,side
 ```
 
-The script and requested actions are compiled into one socket request. Actions run in this order: **script → save → GLB export → renders → scene summary**.
+After a separate `get_scene_info` connectivity check, the script and requested actions are compiled into one `execute_code` request. Actions run in this order: **script → save → GLB export → renders → scene summary**.
 
 ```text
 ok: true
