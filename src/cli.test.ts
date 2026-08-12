@@ -374,18 +374,34 @@ RuntimeError: bevel failed
 
 	it("generates a static skill with installed binary command examples", () => {
 		const skill = createSkillMarkdown();
+		const packageRunnerForBlenderAxi =
+			/\b(?:npx(?:\s+(?:-y|--yes))?|bunx|pnpm\s+dlx|yarn\s+dlx)\s+blender-axi\b/;
+
 		expect(skill).toContain("user-invocable: false");
 		expect(skill).toContain("metadata:\n  hermes:");
 		expect(skill).toContain("usage: blender-axi");
-		expect(skill).not.toContain("usage: npx -y blender-axi");
-		for (const line of skill.split("\n")) {
-			if (
-				/blender-axi (?:ping|exec|build|render|scene|start|stop|setup)/.test(
-					line,
-				)
-			)
-				expect(line).not.toContain("npx -y blender-axi");
-		}
+		expect(skill).not.toMatch(packageRunnerForBlenderAxi);
 		expect(skill).not.toContain("session: default");
+
+		for (const command of [
+			"npx blender-axi ping",
+			"npx -y blender-axi ping",
+			"npx --yes blender-axi ping",
+			"bunx blender-axi ping",
+			"pnpm dlx blender-axi ping",
+			"yarn dlx blender-axi ping",
+		]) {
+			expect(command).toMatch(packageRunnerForBlenderAxi);
+		}
+		for (const command of [
+			"blender-axi ping",
+			"npx -y unrelated-cli",
+			"npx --yes unrelated-cli",
+			"bunx unrelated-cli",
+			"pnpm dlx unrelated-cli",
+			"yarn dlx unrelated-cli",
+		]) {
+			expect(command).not.toMatch(packageRunnerForBlenderAxi);
+		}
 	});
 });
