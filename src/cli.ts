@@ -95,7 +95,7 @@ examples[2]: blender-axi stop, BLENDER_AXI_SESSION=worker-1 blender-axi stop
 	setup: `usage: blender-axi setup hooks
 Install or repair SessionStart hooks for Claude Code, Codex, and OpenCode.
 flags[0]:
-examples[2]: blender-axi setup hooks, npx -y blender-axi setup hooks
+examples[1]: blender-axi setup hooks
 `,
 };
 
