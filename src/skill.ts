@@ -56,7 +56,8 @@ require an MCP server or patched addon.
 3. Run \`npx -y blender-axi exec <file|->\` for Python. Failures return the exception, full
    traceback, and stdout produced before failure. Use \`--full\` if long output is truncated.
 4. Run \`npx -y blender-axi build <file> --save <path> --render front,side --glb <path>\` when
-   build, save, export, and renders must remain a single one-request Blender round-trip.
+   build, save, export, and renders must share one execution request after the separate
+   connectivity check.
 5. Run \`npx -y blender-axi render <angles> --out <dir>\` to write camera PNGs for inspection.
 6. Set \`BLENDER_AXI_SESSION\` for isolated session-to-port mapping or \`BLENDER_AXI_PORT\` for
    an explicit listener. Commands fail loudly instead of falling back to another session.

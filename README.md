@@ -94,7 +94,7 @@ Running the CLI with no arguments gives the same connection check as `ping`, plu
 ```console
 $ blender-axi
 bin: ~/.local/bin/blender-axi
-description: "Drive Blender through its stock BlenderMCP TCP addon with isolated sessions, one-request builds, tracebacks, and camera renders."
+description: "Drive Blender through its stock BlenderMCP TCP addon with isolated sessions, composed builds, tracebacks, and camera renders."
 ok: true
 session: default
 port: 9876
