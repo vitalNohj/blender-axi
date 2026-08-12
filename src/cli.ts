@@ -20,7 +20,7 @@ import {
 } from "./sessions.js";
 
 export const DESCRIPTION =
-	"Drive Blender through its stock BlenderMCP TCP addon with isolated sessions, one-request builds, tracebacks, and camera renders.";
+	"Drive Blender through its stock BlenderMCP TCP addon with isolated sessions, composed builds, tracebacks, and camera renders.";
 
 export const TOP_HELP = `usage: blender-axi [command] [args] [flags]
 ${encode({
@@ -68,7 +68,7 @@ flags[3]: --launch (default false), --json (default false), --full (do not trunc
 examples[2]: blender-axi exec script.py, cat script.py | blender-axi exec -
 `,
 	build: `usage: blender-axi build <file> [--save <path>] [--render <front,side,back,tq>] [--glb <path>] [--launch] [--json] [--full]
-Build, save, export, and render in one socket round-trip.
+Build, save, export, and render in one execution request after a separate connectivity check.
 flags[6]: --save <path>, --render <angles>, --glb <path>, --launch, --json, --full
 examples[2]: blender-axi build build.py --save /tmp/model.blend, blender-axi build build.py --render front,side --glb /tmp/model.glb
 `,
@@ -95,7 +95,7 @@ examples[2]: blender-axi stop, BLENDER_AXI_SESSION=worker-1 blender-axi stop
 	setup: `usage: blender-axi setup hooks
 Install or repair SessionStart hooks for Claude Code, Codex, and OpenCode.
 flags[0]:
-examples[2]: blender-axi setup hooks, npx -y blender-axi setup hooks
+examples[1]: blender-axi setup hooks
 `,
 };
 

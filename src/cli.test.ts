@@ -372,18 +372,51 @@ RuntimeError: bevel failed
 		);
 	});
 
-	it("generates a static skill with only npx command examples", () => {
+	it("generates a static skill with installed binary command examples", () => {
 		const skill = createSkillMarkdown();
+		const packageRunnerForBlenderAxi =
+			/\b(?:npx|bunx|bun[ \t]+x|npm[ \t]+exec|pnpm[ \t]+(?:dlx|exec)|yarn[ \t]+(?:dlx|exec))\b[^\r\n]*?[ \t='"](?:npm:)?blender-axi(?![A-Za-z0-9._-])/;
+
 		expect(skill).toContain("user-invocable: false");
 		expect(skill).toContain("metadata:\n  hermes:");
-		for (const line of skill.split("\n")) {
-			if (
-				/blender-axi (?:ping|exec|build|render|scene|start|stop|setup)/.test(
-					line,
-				)
-			)
-				expect(line).toContain("npx -y blender-axi");
-		}
+		expect(skill).toContain("usage: blender-axi");
+		expect(skill).not.toMatch(packageRunnerForBlenderAxi);
 		expect(skill).not.toContain("session: default");
+
+		for (const command of [
+			"npx blender-axi ping",
+			"npx -y blender-axi ping",
+			"npx --yes blender-axi ping",
+			"npx -q blender-axi ping",
+			"npx -p blender-axi blender-axi ping",
+			"npx --package=blender-axi unrelated-cli",
+			"npx -p npm:blender-axi unrelated-cli",
+			"npx --package unrelated-cli npm:blender-axi ping",
+			"bunx blender-axi ping",
+			"bun x --silent blender-axi ping",
+			"npm exec blender-axi -- ping",
+			"npm exec --package=blender-axi -- unrelated-cli",
+			"pnpm dlx blender-axi ping",
+			"pnpm exec -- blender-axi ping",
+			"yarn dlx blender-axi ping",
+			"yarn exec --verbose blender-axi ping",
+		]) {
+			expect(command).toMatch(packageRunnerForBlenderAxi);
+		}
+		for (const command of [
+			"blender-axi ping",
+			"npx -y unrelated-cli",
+			"npx --yes unrelated-cli blender-axi-helper",
+			"bunx unrelated-cli",
+			"bun x unrelated-cli",
+			"npm exec unrelated-cli",
+			"pnpm dlx unrelated-cli",
+			"pnpm exec unrelated-cli",
+			"yarn dlx unrelated-cli",
+			"yarn exec unrelated-cli",
+			"npx unrelated-cli\nblender-axi ping",
+		]) {
+			expect(command).not.toMatch(packageRunnerForBlenderAxi);
+		}
 	});
 });
