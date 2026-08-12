@@ -1,75 +1,118 @@
-# blender-axi
+# Blender AXI
 
-Token-efficient agent CLI for driving Blender through its stock [BlenderMCP](https://github.com/ahujasid/blender-mcp) v1.2 addon.
+**Drive Blender from any shell-capable coding agent, without making Blender a permanent part of every context window.**
 
-The repository also contains a separate, executable [blender-axi versus BlenderMCP benchmark package](benchmark/docs/BENCHMARK.md). Its fixture, planning, isolation, grading, blinded-scoring, and analysis runtime does not change the production CLI. Live benchmark execution is an explicit, pin-gated command and is never part of normal tests or builds.
+Blender AXI is an agent-facing CLI that speaks the unmodified stock [BlenderMCP v1.2](https://github.com/ahujasid/blender-mcp) addon's TCP protocol directly. There is no MCP server to register, no resident `uvx` process, and no patched addon. The interface appears only when an agent runs a command.
 
-`blender-axi` speaks the addon's raw TCP protocol directly. There is no MCP server to register, no `uvx` process to keep alive, and no patched addon — just a command you run when you actually need Blender.
+| Context | Results | Control |
+| --- | --- | --- |
+| **Zero resident tool-schema cost until invoked.** Compact [TOON](https://github.com/toon-format/toon) by default, JSON on request. | **One request can build, save, export, and render.** Failures include the actionable traceback and stdout printed before the exception. | **Sessions are explicit.** Named ports, opt-in launch, and session-owned stop behavior prevent silent fallback to another Blender. |
 
-## Why a CLI instead of an MCP server
+```sh
+blender-axi ping
+blender-axi scene
+blender-axi build model.py \
+  --save /tmp/model.blend \
+  --glb /tmp/model.glb \
+  --render front,side
+```
 
-An MCP server is resident. Its tool schemas are injected into the agent's context window at the start of every session, whether or not the agent ever touches Blender. A CLI costs **zero tokens until invoked**, and the agent already knows how to run commands.
+> [!NOTE]
+> In an independently verified, frozen four-cell Luna benchmark, Blender AXI completed **2/2 fully correct tasks with 2/2 valid required artifacts**; BlenderMCP completed **0/2 fully correct tasks with 0/2 valid required artifacts**. AXI used **394 s vs 702 s** total wall time, **104,113 vs 116,219** combined input and output tokens, and a **0.040729 vs 0.058815** provider-reported cost proxy. This was a controlled signal with one attempt per cell, not universal proof or a raw transport-speed test. [Read the result and full limitations](#frozen-luna-benchmark).
 
-Beyond the resident cost, `blender-axi` is shaped so each invocation returns less:
+## Why a CLI
 
-- **TOON output, not JSON.** Structured results render as compact key/value and tabular text instead of brace-and-quote-heavy JSON. `--json` is there when a machine-readable envelope is genuinely wanted.
-- **Aggregates before detail.** `scene` returns counts first, so the common "how big is this scene" question costs a handful of lines instead of a full object dump. Object rows are opt-in via `--fields` / `--full`.
-- **One round-trip for a whole build.** `build` runs your script, saves, exports glTF, and renders camera angles in a single socket request, and returns the resulting scene aggregate — instead of five tool calls and five responses.
-- **Failures arrive actionable.** `exec` wraps your script so a crash returns the exception, its Python traceback, and the stdout printed *before* the failure. No follow-up call to ask "what actually broke".
-- **Long output is truncated with an escape hatch.** Execution stdout and traceback fields over 1500 characters are cut with their total size and a `--full` hint, so one chatty script can't flood the context. Failure fields keep the **tail** — where the failing frame and the last progress line are — behind a leading truncation marker.
+MCP tool schemas are resident context: they are presented at session start whether Blender is used or not. A CLI has no resident tool-schema cost. Agents already know how to invoke shell commands, so Blender AXI can spend its interface budget only when work reaches Blender.
 
-## Prerequisites
+The savings continue after invocation:
 
-- **Node 20+**
-- **Blender 3.2+** running as a GUI application
-- **The stock BlenderMCP addon (v1.2)** — used unmodified
+- **Compact by default.** Structured output uses TOON rather than brace-and-quote-heavy JSON. `scene` leads with aggregate counts; object rows are opt-in.
+- **Work is composed before transport.** `build` wraps the supplied Python and requested save, GLB, render, and summary actions into one `execute_code` request.
+- **Failures are complete.** `exec` and `build` return the exception, filtered Python traceback, and pre-failure stdout in the same response.
+- **Chatty scripts stay bounded.** Stdout and failure detail longer than 1,500 characters are truncated with their total length and a `--full` recovery hint. Success keeps the head; failure output keeps the tail where the last progress line and failing frame usually live.
+- **Connection intent is visible.** Ordinary commands never launch Blender. A named session never falls back to the default listener.
+
+## How it works
+
+```text
+coding agent
+    │  invokes only when Blender work is needed
+    ▼
+blender-axi CLI
+    │  one JSON request over 127.0.0.1:<session-port>
+    ▼
+stock BlenderMCP v1.2 TCP listener
+    │  execute_code inside the GUI Blender process
+    ▼
+user Python → save → GLB export → renders → scene summary
+    │
+    └─ TOON result, or JSON with --json
+```
+
+The CLI creates a fresh TCP connection per command and uses the addon's existing `get_scene_info` and `execute_code` messages. For Python execution it injects a small prelude that captures stdout and tracebacks, supplies common Blender globals, and re-resolves Blender context after `bpy.ops.wm.read_homefile()`. Save, export, render, and scene-summary steps then run sequentially inside the same addon request.
 
 ## Install
+
+### Requirements
+
+- Node.js 20 or newer
+- Blender 3.2 or newer, running as a GUI application
+- The unmodified stock BlenderMCP v1.2 `addon.py`
+
+BlenderMCP declares Blender 3.0 as its minimum; Blender AXI requires 3.2 because its context recovery uses `bpy.context.temp_override`, introduced in Blender 3.2.
+
+### Build from source
 
 ```sh
 git clone https://github.com/vitalNohj/blender-axi.git
 cd blender-axi
-npm install
+npm ci
 npm run build
 npm link
 ```
 
-`npm link` puts `blender-axi` on your `PATH`. Without it, invoke the built entry point directly as `node dist/bin/blender-axi.js`.
+`npm link` makes `blender-axi` available on `PATH`. Without it, use `node dist/bin/blender-axi.js` from the repository.
 
-## Blender addon setup
+> [!IMPORTANT]
+> `blender-axi` is not currently published to npm. Do not use `npx blender-axi` for the CLI until a package is published; install from source and use the linked binary.
+
+### Connect the stock addon
 
 1. Download `addon.py` from [ahujasid/blender-mcp](https://github.com/ahujasid/blender-mcp).
-2. In Blender: **Edit > Preferences > Add-ons > Install...**, select `addon.py`, and enable **Interface: Blender MCP**.
-3. Press <kbd>N</kbd> in the 3D viewport and open the **BlenderMCP** sidebar tab.
-4. Leave **Port** at `9876` (or set it to match your session — see [Sessions](#sessions-and-safety)) and click **Connect to Claude**. That button just starts the addon's TCP listener; `blender-axi` talks to it directly.
+2. In Blender, choose **Edit > Preferences > Add-ons > Install...**, select `addon.py`, then enable **Interface: Blender MCP**.
+3. In the 3D View, press <kbd>N</kbd> and open the **BlenderMCP** tab.
+4. Leave the port at `9876` for the default session. For a named session, set the port reported by `blender-axi ping`; if the listener is already running, disconnect and reconnect it so the new port takes effect.
+5. Start the listener with the sidebar's connect button. Stock v1.2 may auto-start the listener when the addon registers; the button is labeled **Connect to MCP server** in current `addon.py` and **Connect to Claude** in older setup instructions.
 
-## First commands
+BlenderMCP refuses to start its listener in Blender background mode (`blender -b`), so use a GUI Blender process.
 
-Run `blender-axi` with no arguments for a content-first status view — it reports the resolved session and port rather than dumping help text:
+## Start here
 
-```
+Running the CLI with no arguments gives the same connection check as `ping`, plus the AXI home-view identity fields. It does not dump the full manual.
+
+```console
 $ blender-axi
-bin: ~/blender-axi/dist/bin/blender-axi.js
+bin: ~/.local/bin/blender-axi
 description: "Drive Blender through its stock BlenderMCP TCP addon with isolated sessions, one-request builds, tracebacks, and camera renders."
 ok: true
 session: default
 port: 9876
 ```
 
+The first useful commands are deliberately small:
+
 ```sh
-blender-axi ping          # confirm the addon is listening
-blender-axi scene         # aggregate scene counts
-blender-axi --help        # commands, flags, and examples
-blender-axi scene --help  # per-command help, no connection needed
+blender-axi ping          # confirm this session's listener
+blender-axi scene         # inspect scene aggregates
+blender-axi --help        # command index and examples
+blender-axi build --help  # complete help for one command, no connection needed
 ```
 
-## Workflows
+### Inspect without flooding context
 
-### Inspect a scene
+`scene` returns evaluated aggregate counts first:
 
-`scene` is counts-first, and tells you how to get more:
-
-```
+```console
 $ blender-axi scene
 objects: 5
 meshes: 3
@@ -80,9 +123,9 @@ name: Scene
 help[1]: Run `blender-axi scene --full` to show all 5 objects
 ```
 
-Opt into object rows with only the columns you need (`name`, `type`, `visible`, `selected`, `vertices`):
+Request only the object columns needed for the next decision. Available fields are `name`, `type`, `visible`, `selected`, and `vertices`.
 
-```
+```console
 $ blender-axi scene --fields name,type,vertices
 objects: 3
 meshes: 2
@@ -96,24 +139,18 @@ items[3]{name,type,vertices}:
   Sun,LIGHT,null
 ```
 
-Rows always carry `name`, even when you don't ask for it, so every row stays joinable to an object.
+Rows always include `name`, even when omitted from `--fields`. `--full` returns every object's `name,type` detail and wins over `--fields`.
 
-`--full` returns every object with the complete `name,type` detail schema. It wins over `--fields`, so `--full --fields vertices` returns the same rows as `--full` alone.
-
-### Run Python
+### Execute Python with useful failure evidence
 
 ```sh
 blender-axi exec script.py
 cat script.py | blender-axi exec -
 ```
 
-`run` is an alias of `exec` and accepts the same arguments and flags.
+`run` is an alias for `exec`. Scripts start with `bpy`, `D` (`bpy.data`), `C` (`bpy.context`), and `_sc` (the active scene) resolved. Blender AXI removes its own wrapper frame and CPython caret-only decoration from tracebacks, leaving the frames the caller can act on.
 
-Tracebacks report your frames and the final exception line. blender-axi's own execution frame and CPython's caret decoration lines are removed, so the traceback points only at code you can fix.
-
-Your script runs with `bpy`, `D` (`bpy.data`), `C` (`bpy.context`), and `_sc` (the active scene) already resolved. A failure returns everything needed to fix it in one response:
-
-```
+```console
 $ blender-axi exec broken.py
 ok: false
 error: "name 'bpu' is not defined"
@@ -129,12 +166,15 @@ traceback: |
 ### Build, save, export, and render in one request
 
 ```sh
-blender-axi build model.py --save /tmp/ship.blend --render front,side --glb /tmp/ship.glb
+blender-axi build model.py \
+  --save /tmp/ship.blend \
+  --glb /tmp/ship.glb \
+  --render front,side
 ```
 
-One socket round-trip runs save → glTF export → render sequentially, returning artifacts and the resulting scene aggregate. These actions are not rolled back, so files written by an earlier action can remain if a later action fails:
+The script and requested actions are compiled into one socket request. Actions run in this order: **script → save → GLB export → renders → scene summary**.
 
-```
+```text
 ok: true
 stdout: |
   built hull
@@ -147,99 +187,149 @@ scene:
   collections: 1
 ```
 
-The supported build action flags are `--save`, `--render`, and `--glb`. Each is independent — use `--save` alone to just persist, or `--glb` alone to just export. Build renders are written beside `--save`, or to the current directory when no `--save` path is given.
+`--save`, `--glb`, and `--render` are independent. Build renders are written beside `--save`, or in the current directory when there is no save path.
 
-`--glb` evaluates mesh modifiers, so results such as bevels are baked into exported geometry instead of exporting the raw mesh. Your source scene is not modified: modifier stacks stay intact and editable, and the saved `.blend` keeps them. Shape keys on objects that carry no modifiers still export as morph targets; as the glTF exporter documents, shape keys are not preserved on objects whose modifiers are baked.
+GLB export uses Blender's evaluated mesh, so modifiers such as bevels are baked into exported geometry without applying or removing the source modifier stack. A `.blend` saved before export remains editable. Blender documents that applying modifiers prevents shape-key export; objects without modifiers can still export shape keys as morph targets.
+
+Build actions are sequential, not transactional. A save or export completed before a later failure can remain on disk even though the final response is a failure.
 
 ### Render for visual verification
 
 ```sh
-blender-axi render front,side,back,tq --out /tmp/renders --res 880x1180
+blender-axi render front,side,back,tq \
+  --out /tmp/renders \
+  --res 880x1180
 ```
 
-Angles are a comma-separated subset of `front`, `side`, `back`, `tq` (three-quarter). `render` orbits the existing camera around the scene's vertical midpoint, and creates a camera and a sun lamp if the scene has none. `--out` defaults to the current directory; `--res` defaults to the scene's own resolution.
+Angles are a comma-separated subset of `front`, `side`, `back`, and `tq` (three-quarter). The command orbits the scene camera around the midpoint between the lowest and highest mesh-object origin Z values. It creates a camera or sun light when missing. `--out` defaults to the current directory; without `--res`, the scene's existing resolution is retained.
 
-## Output format and artifacts
+## Output and artifact contract
 
-Output is [TOON](https://github.com/toon-format/toon) — compact, structured, human- and agent-readable. Add `--json` for a JSON envelope.
+TOON is the default output boundary. Add `--json` where a JSON envelope is more useful.
 
-On success, CLI-managed `--save`, `--glb`, and `--render` actions that completed are reported in the `artifacts` list. The list is omitted when nothing was produced, so `exec` — which never tracks artifacts — doesn't report an empty one. Renders are named `render-<angle>.png`. Build renders are written beside `--save`, or to the current directory when no `--save` path is given; standalone `render` defaults to the current directory. On failure, the response contains `error`, `traceback`, and `stdout_before_failure` without an `artifacts` list, so files written before the failure are not reported. Arbitrary Python run by `exec` or `build` may also write files that the CLI does not track. Paths you pass are used as given, so prefer absolute paths outside your source tree — `/tmp` is a good default — to keep generated `.blend`, `.glb`, and `.png` files out of the repository.
+| Contract | Behavior |
+| --- | --- |
+| Exit `0` | Success, including idempotent lifecycle no-ops |
+| Exit `1` | Connection, protocol, or Blender/Python execution failure |
+| Exit `2` | Invalid command usage |
+| `artifacts` | Only CLI-managed save, GLB, and render actions that all reached a successful response |
+| Failed execution | `error`, `traceback`, and `stdout_before_failure`; no `artifacts` list |
+| Long output | 1,500-character preview plus total length and a `--full` hint |
 
-Exit codes: `0` success or idempotent no-op, `1` execution or connection failure, `2` invalid usage.
+`exec` never tracks artifacts. Arbitrary Python used by `exec` or `build` may write files that Blender AXI cannot report. On a failed multi-action build, files written before the failure may exist even though `artifacts` is omitted.
 
-## Sessions and safety
+Paths are passed to Blender as given. Prefer absolute paths outside the source tree, usually under `/tmp`, to avoid leaving `.blend`, `.glb`, and `.png` files in a repository.
 
-`blender-axi` never guesses which Blender to talk to, and never silently falls back to another one.
+## Sessions and lifecycle
 
-The default session uses port `9876`. Named sessions hash deterministically into ports `9877`–`10876` with their own state directory under `~/.blender-axi/sessions/`, so parallel agents can each drive their own Blender:
+Blender AXI resolves exactly one session and port. It never probes for another Blender and never silently falls back.
 
 ```sh
-BLENDER_AXI_SESSION=worker-1 blender-axi start
-BLENDER_AXI_SESSION=worker-1 blender-axi build model.py --save /tmp/worker-1.blend
+BLENDER_AXI_SESSION=worker-1 blender-axi ping
+BLENDER_AXI_SESSION=worker-1 blender-axi build model.py \
+  --save /tmp/worker-1.blend
 ```
 
-The Blender instance must have its addon **Port** set to the session's port. `blender-axi ping` reports the port a session resolved to.
+The default session uses port `9876`. Named sessions hash deterministically to ports `9877` through `10876` and keep state under `~/.blender-axi/sessions/<name>/`. Hash collisions are possible within that 1,000-port range; use an explicit port to resolve one.
 
-| Variable | Purpose |
+| Environment variable | Purpose |
 | --- | --- |
-| `BLENDER_AXI_SESSION` | Session name (1–64 chars, `A-Za-z0-9._-`) |
-| `BLENDER_AXI_PORT` | Explicit port override, e.g. to resolve a rare hash collision |
-| `BLENDER_AXI_BLENDER` | Blender executable for `start` / `--launch`. Defaults to the macOS app path (`/Applications/Blender.app/Contents/MacOS/Blender`); set it explicitly on Linux and Windows |
+| `BLENDER_AXI_SESSION` | Session name: 1-64 characters from `A-Za-z0-9._-`; names made only of dots are rejected |
+| `BLENDER_AXI_PORT` | Explicit listener port from 1 to 65535; overrides session hashing |
+| `BLENDER_AXI_BLENDER` | Executable used by `start` and `--launch`; defaults to `/Applications/Blender.app/Contents/MacOS/Blender` |
 
-Process lifecycle is always explicit:
+Set `BLENDER_AXI_BLENDER` explicitly on Linux and Windows. The addon's port must match the resolved session port. Changing the port in stock BlenderMCP does not rebind an already-running listener, so disconnect and reconnect after changing it.
 
-- Ordinary commands **never** launch Blender. They fail clearly when the port is dead.
-- `--launch` opts a command into starting Blender only if it isn't already up.
-- `start` launches a Blender GUI owned by this session and waits for its addon port.
-- `stop` targets the PID recorded by this session and reports `not-owned` when no PID file exists. It trusts that recorded PID without verifying the process identity, so a stale PID reused by the operating system could be signalled.
+Lifecycle changes require explicit intent:
 
-Note that `exec` and `build` run arbitrary Python inside Blender via the addon's `execute_code`. Only run scripts you trust.
+- Ordinary `ping`, `scene`, `exec`, `build`, and `render` commands fail clearly when the selected port is unreachable.
+- `--launch` lets one of those commands launch Blender only when its listener is unreachable.
+- `start` returns `already-running` when the listener answers; otherwise it launches a detached GUI Blender, records its PID, and waits up to 30 seconds for the port.
+- `stop` sends `SIGTERM` only to the PID recorded for the same session, then removes the PID file. Without a readable PID file it returns `not-owned` and sends no signal.
+
+> [!CAUTION]
+> A PID file proves what the session recorded, not what currently owns that operating-system PID. If a stale PID has been reused, `stop` could signal the wrong process. Remove or inspect stale state before stopping. Also treat `exec` and `build` scripts as trusted code: they execute arbitrary Python inside Blender through the addon's `execute_code` command.
 
 ## Agent integration
 
-Both paths below are optional and complementary — neither is required to use the CLI.
+Both integration paths are optional. Install either one, both, or neither.
 
-**Session hooks** give agents ambient connection state at session start:
+### Ambient session hooks
 
 ```sh
-blender-axi setup hooks   # Claude Code, Codex, OpenCode
+blender-axi setup hooks
 ```
 
-**The packaged skill** at [`skills/blender-axi/`](skills/blender-axi/SKILL.md) provides on-demand guidance that costs nothing until an agent loads it:
+This installs or repairs SessionStart integration for Claude Code, Codex, and OpenCode. The hook contributes compact live connection state when a supported agent session begins.
+
+### On-demand packaged skill
+
+[`skills/blender-axi/SKILL.md`](skills/blender-axi/SKILL.md) carries task-triggered guidance with no per-session cost until an agent loads it:
 
 ```sh
 npx skills add vitalNohj/blender-axi --skill blender-axi
 ```
 
-The skill's commands are written as `npx -y blender-axi ...`, which requires the npm package. Until `blender-axi` is published to npm, install from source as above and use the global `blender-axi` binary.
+The skill currently renders command examples as `npx -y blender-axi ...`, anticipating package publication. Because the npm package is not published today, use the source-installed global `blender-axi` binary when following those examples.
+
+The file is generated from `src/skill.ts`, not edited by hand. `npm test` checks that the committed skill is current.
+
+## Frozen Luna benchmark
+
+A frozen, independently verified four-cell comparison used the same `codex-lb/gpt-5.6-luna` model at `xhigh` for both interfaces. P1 was a precise scene edit; P5 required running a broken script, diagnosing its first failure, repairing a copy, preserving dirty scene state, and saving the recovered artifact. Prompts and fixtures were frozen, paired fixtures were byte-identical, each cell received one attempt, and dispatch was strictly sequential.
+
+| Result | Blender AXI | BlenderMCP | AXI difference |
+| --- | ---: | ---: | ---: |
+| Fully correct tasks | **2/2** | **0/2** | +2 correct tasks |
+| Valid required artifacts | **2/2** | **0/2** | +2 valid artifacts |
+| Total wall time | **394 s** | **702 s** | **43.9% less** |
+| Combined input + output tokens | **104,113** | **116,219** | **10.4% fewer** |
+| Output tokens | **19,610** | **35,295** | **44.4% fewer** |
+| Reasoning tokens | **15,658** | **21,947** | **28.7% fewer** |
+| Provider/load-balancer cost proxy | **0.040729** | **0.058815** | **30.8% lower** |
+
+Reasoning tokens are included within output tokens, not additive. The provider/load-balancer figure is a relative self-reported proxy, not a measured or verified billing cost.
+
+Per task:
+
+- **P1:** AXI finished correctly in **93 s**. BlenderMCP finished in **102 s** but was incorrect and produced no required artifact.
+- **P5:** AXI finished correctly in **301 s**. BlenderMCP reached the **600 s timeout**, remained incorrect, and produced an invalid required artifact.
+
+**Bottom line:** under these frozen conditions Blender AXI produced more accurate results with less elapsed time, fewer generated tokens, and a lower provider-reported cost proxy than BlenderMCP.
+
+> [!WARNING]
+> **Limitations:** `n=1` per cell; only two prompts, one model and effort level, and one machine were tested. Cell 4 confounds interface arm with timeout. This is a controlled signal for these scenarios, not statistical proof of universal superiority or raw transport speed.
+
+See the committed [four-cell result](benchmark/docs/LUNA-FOUR-CELL-RESULT.md) for cell-level evidence and arithmetic, and the [benchmark methodology](benchmark/docs/BENCHMARK.md) for fixture isolation, pinning, grading, safety, and reporting design.
+
+The benchmark runtime is a separate package under `benchmark/`; it does not change the production CLI. Its live preflight is an explicit pin-gated command that can launch four paid model runs. **Never run `preflight execute` during normal development, tests, builds, or CI.**
 
 ## Troubleshooting
 
-| Symptom | Cause and fix |
+| Symptom | What to do |
 | --- | --- |
-| `No Blender addon answered for session "..." on port N` | Blender isn't running, the addon listener isn't started, or the addon's **Port** doesn't match. The error suggests `blender-axi start` and `--launch`; you can also click **Connect to Claude** in the BlenderMCP sidebar. |
-| Wrong port for a named session | Run `blender-axi ping` to see the resolved port, then set the addon's **Port** to match, or pin it with `BLENDER_AXI_PORT`. |
-| `Cannot render: scene has no mesh objects` | `render` needs at least one mesh. Build geometry first. |
-| `Cannot export glTF: scene has no objects` | `--glb` needs something to export. |
-| Failure output starts with `... (truncated, N chars total)` | Intentional context guard. Tracebacks and pre-failure stdout retain their tail; successful stdout retains its head and ends with the marker. Re-run with `--full` for everything. |
-| `blender-axi: command not found` | `npm link` wasn't run, or use `node dist/bin/blender-axi.js` directly. |
-| A script called `bpy.ops.wm.read_homefile()` and later steps behaved oddly | Handled: `blender-axi` re-resolves and normalizes Blender's context after a scene reset so save, export, and render act on the replacement scene. |
-| `stop` reports `not-owned` | This session has no readable PID file, so no signal is sent. Otherwise `stop` signals the recorded PID without verifying process identity. |
+| `No Blender addon answered for session "..." on port N` | Start GUI Blender, confirm the stock addon is enabled, and make its listener port match `blender-axi ping`. Connect or reconnect the listener, or intentionally use `start` / `--launch`. |
+| A named session reports the wrong listener | `ping` shows the resolved port. Set the addon's port to match, then disconnect and reconnect; or pin `BLENDER_AXI_PORT`. |
+| `Cannot render: scene has no mesh objects` | Build or open mesh geometry before rendering. |
+| `Cannot export glTF: scene has no objects` | Add at least one scene object before using `--glb`. |
+| Output begins or ends with `... (truncated, N chars total)` | This is the context guard. Re-run the same command with `--full`. |
+| `blender-axi: command not found` | Run `npm link` after building, or use `node dist/bin/blender-axi.js`. |
+| A script uses `bpy.ops.wm.read_homefile()` | Supported. Blender AXI re-resolves and normalizes context so later save, export, render, and summary actions target the replacement scene. |
+| `stop` returns `not-owned` | The session has no readable PID file, so Blender AXI sent no signal. |
+| `start` launches Blender but the requested named port never answers | Stock v1.2 can auto-start on `9876` before the launch-time port assignment. Start an isolated GUI Blender listener manually on the reported port; see the project notes in [`AGENTS.md`](AGENTS.md). |
 
 ## Development
 
 ```sh
-npm test           # regenerate-check the skill, then run the suite
-npm run build      # tsc type-check and emit to dist/
-npm run build:skill  # regenerate skills/blender-axi/SKILL.md from src/skill.ts
-npm run dev -- ping  # run from TypeScript source without building
+npm test              # check generated skill, then run all tests
+npm run build         # type-check and emit dist/
+npm run build:skill   # regenerate skills/blender-axi/SKILL.md
+npm run dev -- ping   # execute TypeScript source directly
 ```
 
-`skills/blender-axi/SKILL.md` is generated. Edit `src/skill.ts` and re-run `npm run build:skill`; `npm test` fails if the committed file is stale.
+`npm test` is self-isolating and does not require a reachable addon listener. Live acceptance does require GUI Blender with the stock addon listening; write all acceptance artifacts outside the repository, normally under `/tmp`.
 
-`npm test` is environment-independent and does not require a reachable Blender addon listener.
-
-Live acceptance against a real Blender requires a GUI instance with the addon listener running, and should write artifacts outside the source tree.
+For benchmark work, begin with [`benchmark/docs/BENCHMARK.md`](benchmark/docs/BENCHMARK.md). Its offline proof, live preflight, process ownership, pinning, grading, and reporting rules are authoritative. The live preflight is not a development or CI check.
 
 ## License
 
