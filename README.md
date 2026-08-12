@@ -271,7 +271,7 @@ This installs or repairs SessionStart integration for Claude Code, Codex, and Op
 npx skills add vitalNohj/blender-axi --skill blender-axi
 ```
 
-The skill currently renders command examples as `npx -y blender-axi ...`, anticipating package publication. Because the npm package is not published today, use the source-installed global `blender-axi` binary when following those examples.
+The skill uses the source-installed `blender-axi` binary for every command. No independently authorized publication currently owns that npm package name, so the skill does not use package-registry execution.
 
 The file is generated from `src/skill.ts`, not edited by hand. `npm test` checks that the committed skill is current.
 

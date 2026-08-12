@@ -372,17 +372,19 @@ RuntimeError: bevel failed
 		);
 	});
 
-	it("generates a static skill with only npx command examples", () => {
+	it("generates a static skill with installed binary command examples", () => {
 		const skill = createSkillMarkdown();
 		expect(skill).toContain("user-invocable: false");
 		expect(skill).toContain("metadata:\n  hermes:");
+		expect(skill).toContain("usage: blender-axi");
+		expect(skill).not.toContain("usage: npx -y blender-axi");
 		for (const line of skill.split("\n")) {
 			if (
 				/blender-axi (?:ping|exec|build|render|scene|start|stop|setup)/.test(
 					line,
 				)
 			)
-				expect(line).toContain("npx -y blender-axi");
+				expect(line).not.toContain("npx -y blender-axi");
 		}
 		expect(skill).not.toContain("session: default");
 	});
